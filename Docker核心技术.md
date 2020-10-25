@@ -171,3 +171,68 @@ docker rmi 镜像文件名
 删除全部
     - docker rmi -f $(docker images -qa)
 ```
+
+## 容器命令
+1. 下载镜像
+有镜像才能创建容器，这是根本前提，以CentOS镜像为例
+``` 
+docker pull centos
+```
+2. 新建并启动容器
+```
+docker run [OPTIONS] IMAGE [COMMAND] [ARGS...]
+常用OPTIONS：有些事一个减号
+    --name="容器新名字"：为容器指定一个名称
+    -d：后台运行容器，并返回容器ID，也即启动守护式容器
+    -i：为容器重新分配一个伪输入终端，通常与-i同时使用
+    -P：随机端口映射
+    -p：指定端口映射，有以下四种格式
+        ip：hostPort:containerPort
+        ip::containerPort
+        hostPort:containerPort
+        containerPort
+```
+3. 列出当前所有正在运行的容器
+```
+docker ps[OPTIONS]
+常用参数：
+    -a：列出当前所有正在运行的容器+历史上运行过的
+    -l：显示最近创建的容器
+    -n：显示最近n个创建的容器
+    -q：静默模式，只显示容器编号
+    --no-trunc：不截断输出
+```
+4. 退出容器
+``` 
+exit 容器停止退出
+ctrl + P + Q 容器不停止退出
+```
+5. 启动容器
+``` 
+docker start 容器ID或者容器名
+```
+6. 停止容器
+```
+docker stop 容器ID或者容器名称
+docker kill 容器ID或者容器名称：强制停止容器
+```
+7. 删除已停止的容器
+```
+docker rm 容器ID
+删除多个容器：docker rm -f $(docker ps -a -q)
+             docker ps -a -q | xargs docker rm
+```
+8. 启动守护式容器
+``` 
+docker run -d
+```
+使用docker ps -a进行查看会发现容器已经退出
+Docker容器后台运行，就必须有一个前台进程，容器运行的命令如果不是那些一直挂起的命令，就会自动退出
+9. 查看容器日志
+```
+docker logs -f -t -tail 容器ID
+常用参数
+    -t：加入时间戳
+    -f：跟随最新的日志打印
+    --tail：显示最后多少条
+```

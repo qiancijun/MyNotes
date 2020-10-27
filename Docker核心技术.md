@@ -294,3 +294,17 @@ docker run -it -v/宿主机绝对路径目录:/容器内目录 镜像名
 ```
 
 2. DockerFile添加
+    1. 根目录下新建mydocker文件夹并进入
+    2. 可在Dockerfile中使用VOLUME指令来给镜像添加一个或多个数据卷
+        * VOLUME["/dataVolumeContainer", “/dataVolumeContainer2”, “/dataVolumeContainer3”]
+        * 出于可移植和分享的考虑，用-v 主机目录：容器目录这种方法不能够直接在DockerFile中实现
+        * 由于宿主机目录是依赖于特定宿主机的，并不能够保证所有的宿主机上都存在这样的特定目录
+    3. File构建
+    4. build后生成镜像
+    5. run容器
+
+## 数据卷容器
+命名的容器挂载数据卷，其他容器通过挂载这个（父容器）实现数据共享，挂载数据卷的容器，称之为数据卷容器
+```
+docker run -it --name dc02 --volumes -from dc01 centos
+```

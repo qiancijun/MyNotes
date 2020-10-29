@@ -12,7 +12,7 @@ tags:
 ## Docker底层原理
 
 * Docker架构图
-![]()
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/Docker/1.Docker%E7%BB%84%E6%88%90.png)
 
 * Docker镜像
 Docker镜像就是一个只读的模板。镜像可以用来创建Docker容器，一个镜像可以创建很多容器。
@@ -307,4 +307,50 @@ docker run -it -v/宿主机绝对路径目录:/容器内目录 镜像名
 命名的容器挂载数据卷，其他容器通过挂载这个（父容器）实现数据共享，挂载数据卷的容器，称之为数据卷容器
 ```
 docker run -it --name dc02 --volumes -from dc01 centos
+```
+
+# DockerFile
+* 手动编写一个DockerFile文件，必须要符合File的规范，有这个文件后，直接Docker Build命令执行，获得一个自定义的镜像。
+* DockerFile是用来构建Docker镜像的构建文件，是由一系列命令和参数构成的脚本
+
+## DockerFile体系结构
+1. FROM
+基础镜像，当前新镜像是基于哪个镜像的
+2. MAINTAINER
+镜像维护者的姓名和邮箱地址
+3. RUN
+容器构建时需要用到的命令
+4. EXPOSE
+当前容器对外暴露出的端口号
+5. WORKING
+指定在创建容器后，终端默认登录的进来工作目录，一个落脚点
+6. ENV
+用来在构建镜像过程中设置环境变量
+7. ADD
+将宿主机目录下的文件拷贝进镜像且ADD命令会自动处理URL和解压tar压缩包
+8. COPY
+类似ADD，拷贝文件和目录到镜像中。将从构建上下文目录中<源路径>的文件/目录复制到一层新的镜像内<目标路径>位置
+```
+COPY src dest
+COPY ["src", "dest"]
+```
+9. VOLUME
+容器数据卷，用于数据保存和持久化工作
+10. CMD
+指定一个容器启动时要运行的命令
+DockerFile中可以由多个CMD指令，但只有最后一个生效CMD会被docker run之后的参数替换
+11. ENTRYPOINT
+指定一个容器启动时要运行的命令、
+ENTRYPOINT的目的和CMD一样，都是在指定容器启动程序及参数
+12. ONBUILD
+当构建一个被继承的DockerFile时运行命令，父镜像在被子继承后父镜像的onbuild被触发
+
+# Docker常用安装
+1. 在DockerHub上查找镜像
+```
+docker search 镜像名
+```
+2. 从DockHub上拉取镜像
+``` 
+docker pull 镜像名
 ```

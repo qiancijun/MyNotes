@@ -546,6 +546,178 @@ lsblk -f
     4. 挂载 先创建目录 /home/newDisk， 挂载 mount /dev/sdb1 /home/newDisk
     5. 设置可以自动挂载 vim /etc/fstab；输入/dev/sdb1     /home/newDisk      ext4      defaults    0 0(其中ext4是分区类型)
 
+### 磁盘查询
+1. df
+查询系统整体磁盘使用情况
+```
+df -h
+```
+
+2. du
+查询指定目录的磁盘占用情况
+```
+du -h /目录：查询指定目录的磁盘占用情况，默认为当前目录
+常用参数：
+    -s：指定目录占用大小汇总
+    -h：带计量单位
+    -a：含文件
+    -max-depth=1：子目录深度
+    -c：列出明细的同时，增加汇总值
+```
+
+### 磁盘命令举例
+1. 统计`/home`文件夹下文件的个数
+```
+ls -l /home | grep "^-" | wc -l
+```
+
+2. 统计`/home`文件夹下目录的个数
+```
+ls -l /home | grep "^d" | wc -l
+```
+
+3. 统计`/home`文件夹下文件的个数。包括子文件夹里的
+```
+ls -lR /home | grep "^-" | wc -l
+```
+
+4. 统计文件夹下目录的个数，包括子文件夹
+```
+ls -lR /home | grep "^d" | wc -l
+```
+
+## 网络配置
+
+### Linux网络环境配置
+1. 自动获取
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/Linux/Linux%E7%BD%91%E7%BB%9C-%E8%87%AA%E5%8A%A8%E9%93%BE%E6%8E%A5.png)
+Linux启动后会自动获取IP，每次自动获取的IP地址可能不一样
+
+2. 指定ip
+直接修改配置文件来指定IP，并可以连接到外网，编辑`/etc/sysconfig/network-scripts/ifcfg-eth0`（不同版本的网卡配置不一样）
+将BOOTPROTO改成static
+ONBOOT=yes
+
+3. 重启网络服务
+```
+service network restart
+```
+
+## 进程管理
+1. ps
+ps命令是用来查看目前系统中，有哪些正在执行，以及它们执行的情况，可以不加任何参数
+* ps显示的信息选项：
+    1. PID：进程识别号
+    2. TTY：终端机号
+    3. TIME：此进程占用CPU的总计时间
+    4. CMD：正在执行的命令或进程名
+```
+ps -a：显示当前终端的所有进程信息
+ps -u：以用户的格式显示进程信息
+ps -x：显示后台进程运行的参数
+```
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/Linux/Linux%E8%BF%9B%E7%A8%8B%E7%AE%A1%E7%90%86-%E6%9F%A5%E7%9C%8B%E8%BF%9B%E7%A8%8B.png)
+
+```
+ps -ef：以全格式显示当前所有的进程
+    -e：显示所有进程
+    -f：全格式
+ps -ef | grep xxx
+其中：
+    UID：用户ID
+    PID：进程ID
+    PPID：父进程ID
+    C：CPU用于计算执行优先级的因子。数值越大表明进程是CPU密集型运算，执行优先级会降低；数值越小，表明进程是I/O密集型运算，执行优先级会提高
+    STIME：进程启动的时间
+    TTY：完整的终端名称
+    TIME：CPU时间
+    CMD：启动进程所用的命令和参数
+```
+
+2. kill和killall
+若某个进程执行一般需要停止时，或是已经消耗了很大的系统资源的时候，此时可以考虑停止该进程，使用`kill`命令来完成停止进程
+```
+kill [选项] 进程号：通过进程号杀死进程
+killall 进程名称：通过进程名称来杀死进程，也支持通配符，这在系统因负载过大而变得很慢时很有用
+常用参数：
+    -9：强迫进程立即停止
+```
+例：踢掉某个非法登录用户
+```
+ps -aux | grep sshd：查看用户登录的进程
+kill 进程号
+```
+
+3. pstree
+查看进程树
+```
+pstree [选项]：可以更加直观的来查看进程信息
+常用参数：
+    -p：显示进程的PID
+    -u：显示进程的所属用户
+```
+
+## 服务管理
+服务本质就是进程，但是是运行在后台，通常都会监听某个端口，等待其他程序的请求，因此又称为守护进程
+
+1. service
+```
+service 服务名 start | stop | restart | reload | status
+systemctl（CentOS7以后）
+```
+例：查看当前防火墙的状态，关闭防火前，重启防火墙
+```
+seervice iptables status：查看防火墙状态
+seervice iptables stop：关闭防火墙
+seervice iptables start：开启防火墙
+
+CentOS7：
+systemctl status firewalld
+systemctl stop firewalld
+systemctl start firewalld
+```
+
+2. chkconfig
+通过chkconfig命令可以给每个运行级别设置自启动/关闭
+```
+chkconfig --list：查看服务
+chkconfig 服务名 --list
+chkconfig --leevl 5 服务名 on/off
+```
+
+## 动态监控进程
+```
+top [选项]
+常用参数：
+    -d 秒数：指定top命令每隔几秒更新，默认3秒
+    -i：使top不显示任何闲置或者僵死进程
+    -p：通过指定监控进程ID来仅仅监控某个进程的状态
+交互指令:
+    P：以CPU使用率排序，默认项
+    M：以内存使用率排序
+    N：以PID排序
+    q：退出top
+监视特定用户：
+    u：然后输入用户名即可
+终止指定的进程
+    k：再输入要结束的进程ID号
+```
+top与ps命令很相似，它们都用来显示正在执行的进程。top与ps最大的不同之处在于，top在执行一段时间可以更新正在运行的进程
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/Linux/Linux%E5%8A%A8%E6%80%81%E7%9B%91%E6%8E%A7%E8%BF%9B%E7%A8%8B.png)
+
+## 监控网络状态
+```
+netstat [选项]
+netstat -anp
+常用参数：
+    -an：按一定顺序排列输出
+    -p：显示哪个进程在调用
+```
+例：查看服务名为`sshd`的服务的信息
+```
+netstat -anp | grep sshd
+```
+
 # CentOS
 ## CentOS7更换镜像源
 1. 备份原来的yum源

@@ -718,6 +718,81 @@ netstat -anp
 netstat -anp | grep sshd
 ```
 
+# 包管理
+
+## RPM
+* RPM是一种用于互联网下载包的打包及安装工具，它包含在某些Linux分发版中。它生成具有.RPM扩展名的文件。RPM是RedHad Package Manager的缩写。
+
+* rpm包名基本格式
+一个rmp包名：gcc-4.8.5-39.el7.x86_64
+名称：gcc
+版本号：4.8.5-39
+使用操作系统：el7.x86_64 表示x86的64位系统
+
+1. rpm包简单查询
+```
+rpm -qa | grep xx：查询已安装的rpm列表
+```
+
+2. 其他查询指令
+```
+rpm -qa：查询所有安装的软件包
+rpm -q 软件包名：查询软件包是否安装
+rpm -qi 软件包名：查询软件包信息
+rpm -qf 文件全路径名：查询文件所属的软件包
+```
+
+3. 卸载
+```
+rpm -e RPM包的名称
+参数：
+    --nodeps：强制删除
+```
+
+4. 安装rpm包
+```
+rpm -ivh RPM包全路径名称
+参数说明：
+    i：install 安装
+    v：verbose 提示
+    h：hash 进度条
+```
+
+## YUM
+* yum是一个Shell前端软件包管理器。基于RPM包管理，能够从指定的服务器自动下载RPM包并且安装，可以自动处理依赖性关系，并且一次安装所有依赖的软件包
+
+1. 查询yum服务器是否有需要安装的软件
+```
+yum list | grep xx软件列表
+```
+2. 安装指定的yum包
+```
+yum install xxx
+```
+
+# JavaEE环境配置
+
+## JDK
+
+1. 解压文件
+把源码包放入`/opt`目录下，执行命令解压
+```
+tar -zxvf 文件名
+```
+
+2. 配置环境变量
+```
+vim /etc/profile
+JAVA_HOME=/opt/jdk版本号
+PATH=/opt/jdk版本号/bin:$PATH
+exprot JAVA_HOME PATH
+```
+
+3. yum安装
+```
+yum install java-1.8.0-openjdk-devel.x86_64      
+```
+
 # CentOS
 ## CentOS7更换镜像源
 1. 备份原来的yum源

@@ -56,3 +56,51 @@ Zookeeper 是 Apache Hadoop 的子项目，是一个树型的目录服务，支�
 
 ## 管理控制台
 在Dubbo官方Github中找到Dubbo-admin（下载时注意分支）。该项目是一个maven工程，以jar包方式运行，以SpringBoot启动，在cmd下输入`mvn clean package`进行打包（需要配置maven），打包完之后，使用`java -jar`命令启动，（需要打开Zookeeper服务）
+
+* 注意:
+3.5Zookeeper会占用8080端口号，dubbo-admin会提示端口占用，在Zookeeper的配置文件下添加`admin.serverPort=8888`
+
+## 配置服务
+1. 将服务提供者注册到注册中心
+    1. 导入dubbo依赖
+    2. 导入操作Zookeeper的客户端
+    3. 配置服务提供者
+2. 让服务消费者去注册中心订阅服务提供者的服务地址
+
+* 配置文件
+指定当前服务/应用的名字（同样的服务名字相同，不要和别的服务同名）
+``` xml
+<dubbo:application name="dubbo-provider"></dubbo:application>
+```
+指定注册中心的位置
+``` xml
+<dubbo:registry address="zookeeper://localhost2181" />
+或
+<dubbo:registry protocol="zookeeper" address="127.0.0.1:2181" />
+```
+指定通信规则（通信协议，通信端口）
+``` xml
+<dubbo:protocol name="dubbo" port="20001"></dubbo:protocol>
+其中name是固定写法
+```
+指明要暴露的服务
+``` xml
+<dubbo:service interface="com.qiancijun.service.ProviderService" ref="provideService"></dubbo:service>
+<bean id="provideService" class="com.qiancijun.impl.ProvideService"/>
+interface：要暴露的接口
+ref：真正的实现
+```
+
+测试程序
+``` java
+public class MainApplication {
+    public static void main(String[] args) throws IOException {
+        ClassPathXmlApplicationContext ioc = new ClassPathXmlApplicationContext("provider.xml");
+        ioc.start();
+        System.in.read();
+    }
+}
+```
+>若运行不成功检查依赖是否导入完整，需要额外导入curator-framework、curator-client、curator-recipes
+
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/Dubbo/%E9%85%8D%E7%BD%AEProvider.png)

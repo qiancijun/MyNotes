@@ -14,3 +14,5 @@
     * JavaEE篇更新至JDK的安装（2020.10.31）
 4. ActiveMQ基础
     * 待更
+5. Netty
+   * 更新至BIO

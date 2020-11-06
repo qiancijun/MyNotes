@@ -104,3 +104,157 @@ public class MainApplication {
 >若运行不成功检查依赖是否导入完整，需要额外导入curator-framework、curator-client、curator-recipes
 
 ![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/Dubbo/%E9%85%8D%E7%BD%AEProvider.png)
+
+3. 配置消费者
+
+* 指定消费者的名字
+``` xml
+<dubbo:application name="dubbo-consumer"/>
+```
+
+* 指定注册中心的名字
+``` xml
+<dubbo:registry address="zookeeper://127.0.0.1:2181"/>
+```
+
+* 指定要引用的接口
+``` xml
+<dubbo:reference interface="com.qiancijun.service.ProviderService" id="provideService"/>
+```
+
+* 开启Spring包扫描
+``` xml
+<context:component-scan base-package="com.qiancijun.impl"/>
+```
+此时可以在提供者接口上加入`@Autowired`注解，来自动注入，同时可以把消费者加入Sprint的IOC容器
+
+* 测试类
+``` java
+public class MainApplication {
+    public static void main(String[] args) throws IOException {
+        ClassPathXmlApplicationContext applicationContext = new ClassPathXmlApplicationContext("consumer.xml");
+        ConsumerImpl consumer = applicationContext.getBean(ConsumerImpl.class);
+        consumer.getUserById();
+
+        System.in.read();
+    }
+}
+```
+
+## 整合SpringBoot
+
+1. 导入dubbo-start启动器
+``` xml
+<dependency>
+    <groupId>org.apache.dubbo</groupId>
+    <artifactId>dubbo-spring-boot-starter</artifactId>
+    <version>2.7.7</version>
+    <!-- dubbo的版本 -->
+</dependency>
+
+<dependency>
+    <groupId>org.apache.curator</groupId>
+    <artifactId>curator-recipes</artifactId>
+    <version>5.1.0</version>
+    <!-- 与Zookeeper的整合 -->
+</dependency>
+```
+
+2. 配置dubbo
+```
+dubbo.application.name=boot-provider
+dubbo.registry.address=127.0.0.1:2181
+dubbo.registry.protocol=zookeeper
+dubbo.protocol.name=dubbo
+dubbo.protocol.port=20001
+```
+
+3. 利用注解添加提供者服务
+``` java
+// duubo提供的Service注解，用于暴露服务
+@Service
+public class ProviderServiceImpl implements ProviderService {
+    @Override
+    public List<User> getUserList() {
+        List<User> list = new ArrayList<>();
+        list.add(new User(1, "Qianci", "123456@gmail.com"));
+        list.add(new User(2, "qc", "111222@gmail.com"));
+        return list;
+    }
+}
+```
+
+4. SpringBoot主程序开启Dubbo注解功能
+``` java
+@EnableDubbo // 开启基于注解的Dubbo功能
+@SpringBootApplication
+public class BootProviderApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(BootProviderApplication.class, args);
+    }
+
+}
+```
+
+5. 配置消费者服务
+```
+dubbo.application.name=boot-consumer
+dubbo.registry.address=127.0.0.1:2181
+dubbo.registry.protocol=zookeeper
+dubbo.protocol.name=dubbo
+server.port=8081
+```
+
+6. 实现消费者服务接口，`@Refenrence`来指定要引用的提供者服务
+``` java
+@Service
+public class ConsumerServiceImpl implements ConsumerService {
+
+    @Reference
+    ProviderService providerService;
+
+    @Override
+    public List<User> getUserById() {
+        List<User> list = providerService.getUserList();
+
+        return list;
+    }
+}
+```
+
+7. 编写一个Controller便于测试
+``` java
+@Controller
+public class ConsumerController {
+
+    @Autowired
+    ConsumerService consumerService;
+
+    @RequestMapping("/query")
+    @ResponseBody
+    public List<User> testDubbo() {
+        List<User> u = consumerService.getUserById();
+        for (User user : u)
+            System.out.println(user);
+        return u;
+    }
+}
+```
+
+8. 主程序开启支持Dubbo注解
+``` java
+@EnableDubbo
+@DubboComponentScan()
+@SpringBootApplication
+public class BootConsumerApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(BootConsumerApplication.class, args);
+    }
+
+}
+```
+
+* 注：
+    1. 消费者报空指针异常往往是提供者服务未能正常引入，检查是否开启了`EnableDubbo`注解

@@ -111,3 +111,64 @@ public class BIOServer {
   1. 每个请求都需要创建独立的线程，与对应的客户端进行数据读取，业务处理，数据返回
   2. 当并发数较大时，需要创建大量线程来处理连接，系统资源占用较大
   3. 连接建立后，如果当前线程暂时没有数据可读，则线程就阻塞在read操作上，造成线程资源浪费
+
+## NIO
+1. Java NIO全称`java non-blocking IO`，是指JDK提供的新API。从JDK1.4开始，Java提供了一系列改进的输入/输出的新特性，被统称为NIO，是$\color{red}{同步非阻塞}$的
+2. NIO相关类都被放在`java.nio`包及子包下，并且对原`java.io`包中的很多类进行重写
+3. NIO有三大核心部分：Channel（通道），Buffer（缓冲区），Selector（选择器）
+4. NIO是面向$\color{red}{缓冲区，或者面向块}$编程的。数据读取到一个它稍后处理的缓冲区，需要时可在缓冲区中前后移动，这就增加了处理过程中的灵活性，使用它可以提供非阻塞式的高伸缩性网络
+5. Java NIO的非阻塞模式：使一个线程从某通道发送请求读取数据，但是它仅能得到目前可用的数据，如果目前没有数据可用时，就什么都不会获取，而不是保持线程阻塞，所以直到数据变得可以读取之前，该线程可以继续做其他的事情。非阻塞写也是如此，一个线程请求写入一些数据到某通道，但不需要等待它完全写入，这个线程同时可以去做别的事情。
+6. NIO是可以做到用一个线程来处理多个操作的。假设有10000个请求过来，根据实际情况，可以分配50个或者100个线程来处理。不像之前的阻塞IO一样，要分匹配10000个。
+7. HTTP2.0使用了多路复用的技术，做到同一个连接并发处理多个请求，而且并发请求的数量比HTTP1.1大了好几个数量级。
+
+* 举例说明Buffer的使用
+``` java
+public class BasicBuffer {
+    public static void main(String[] args) {
+        // 创建一个Buffer，大小为5，即可以存放5个int
+        IntBuffer intBuffer = IntBuffer.allocate(5);
+        // 向Buffer中存放数据
+        for (int i = 1; i <= intBuffer.capacity(); i++) {
+            intBuffer.put(i);
+        }
+        // 从Buffer读取数据
+        // 将buffer读写切换：intBuffer.flip();
+        intBuffer.flip();
+        while (intBuffer.hasRemaining()) {
+            System.out.println(intBuffer.get());
+        }
+    }
+}
+```
+
+### NIO和BIO的比较
+1. BIO以流的方式处理数据，而NIO以块的方式处理数据，块 I/O的效率比 流 I/O高很多
+2. BIO是阻塞的，NIO是非阻塞的
+3. BIO基于字节流和字符流进行操作，而NIO基于Channel（通道）和Buffer（缓冲区）进行操作，数据总是从通道读取到缓冲区中，或者从缓冲区写入到通道中，Selector（选择器）用于监听多个通道的事件（比如：连接请求，数据到达等），因此使用单个线程就可以监听多个客户端通道
+
+### NIO三大核心组件
+
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/Netty/Netty-NIO%E4%B8%89%E5%A4%A7%E7%BB%84%E4%BB%B6%E5%85%B3%E7%B3%BB%E5%9B%BE.png)
+
+* 关系图的说明：
+  1. 每一个Channel都对应一个Buffer
+  2. Selector会对应一个线程，一个线程对应多个Channel
+  3. 该图反应了有三个Channel注册到了Selector
+  4. 程序切换到哪个Channel是由事件决定的，Event是一个重要的概念
+  5. Selector会根据不同的事件，在各个通道上切换
+  6. Buffer就是一个内存块，底层是一个数组
+  7. 数据的读取写入是通过Buffer，这一点和BIO有本质的区别，BIO是输入流或者是输出流，不能双向，但是NIO的Buffer既可以读也可以写，需要使用`filp()`方法进行切换
+  8. Channel是双向的，可以返回底层操作系统的情况，比如Linux，底层的操作系统通道就是双向的
+
+### Buffer
+* 缓冲区（Buffer）：缓冲区本质上是一个可以读写数据的内存块，可以理解成是一个$\color{red}{容器对象（含数组）}$，该对象提供了$\color{red}{一组方法}$，可以更轻松的使用内存块，缓冲区对象内置了一些机制，能够追踪和记录缓冲区的状态变化情况。Channel提供从文件、网络读取数据的渠道，但是读取或写入数据都必须经由Buffer
+* Buffer类及其子类
+  1. 在NIO中，Buffer是一个顶级父类，它是一个抽象类，类的层级关系图
+  2. Buffer类定义了所有的缓冲区都具有的四个属性来提供关于其所包含的数据元素的信息：
+     1. Capacity：容量，即可以容纳的最大数据量；在缓冲区创建时被设定并且不能改变
+     2. Limit：表示缓冲区的当前终点，不能对缓冲区超过极限的位置进行读写操作。且极限是可以修改的
+     3. Position：位置，下一个要被读或写的元素的索引，每次读写缓冲区数据时都会改变值，为下次读写做准备
+     4. Mark：标记
+
+
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/Netty/Netty-NIO%20Buffer%E7%B1%BB%E5%B1%82%E7%BA%A7%E5%85%B3%E7%B3%BB%E5%9B%BE.png)

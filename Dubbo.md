@@ -288,3 +288,9 @@ public class BootConsumerApplication {
 ## 服务降级
 * 当服务器压力剧增的情况下，根据实际业务情况及流量，对一些服务和页面有策略地不处理或换种简单地方式处理，从而释放服务器资源以保证核心交易正常运作或高效运作。
 * 可以通过服务降级功能临时屏蔽某个出错地非关键服务，并定义降级后地返回策略
+* 向注册中心写入动态配置覆盖原则
+``` java
+RegistryFactory registryFactory = ExtensionLoador.getExtensionLoader(RegistryFactory.class).getAdaptiveExtension();
+Registry registry = registryFactory(URL.valueOf("zookeeper://127.0.0.1:2181"));
+registry.register()
+```

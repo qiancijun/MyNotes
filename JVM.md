@@ -508,6 +508,8 @@ public void test() {
 
 
 
+## 7.2 设置内存大小与OOM
+
 堆内存演示代码
 
 ``` java
@@ -540,16 +542,97 @@ public class HeapDemo {
 
 
 
-### 内存细分
+### 7.2.1 内存细分
 
 现代垃圾回收器大部分都基于分代收集理论设计，堆空间细分为：
 
 1. Java 7及之前，堆内存在逻辑上分为三部分：新生区+养老区+永久区，新生区又被划分为伊甸园和幸存者区
 2. Java 8及其之后，堆内存在逻辑上分为三部分：新生区+养老区+元空间
 
-## 7.2 设置内存大小与OOM
+### 7.2.2 OutOfMemory举例
+
+* 设置JVM最大堆内存为600m`-Xms600m -Xmx600m`
+
+``` java
+public class OutOfMemory {
+    public static void main(String[] args) {
+        List<Picture> list = new ArrayList<>();
+        while (true) {
+            try {
+                Thread.sleep(20);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            list.add(new Picture(new Random().nextInt(1024 * 1024)));
+        }
+    }
+}
+
+class Picture {
+    private byte[] pixels;
+
+    public Picture(int length) {
+        this.pixels = new byte[length];
+    }
+}
+```
+
+* 运行结果
+
+``` 
+Exception in thread "main" java.lang.OutOfMemoryError: Java heap space
+	at com.qiancijun.jvm.Picture.<init>(OutOfMemory.java:25)
+	at com.qiancijun.jvm.OutOfMemory.main(OutOfMemory.java:16)
+```
+
+* Picture会不断的被初始化，存储在堆空间中
+
+
 
 
 
 ## 7.3 年轻代与老年代
 
+* 存储在JVM中的Java对象可以被划分为两类：
+    * 一类是生命周期较短的瞬时对象，这类对象的创建和消亡都非常迅速
+    * 另一类对象的生命周期非常长，在某些极端的情况下还能够与JVM的生命周期保持一致
+* Java堆区进一步细分的话，可以划分为年轻代（YoungGen）和老年代（OldGen）
+* 其中年轻代又可以划分为Eden空间、Survivor0空间和Survivor1空间（有时候也叫from区、to区）
+
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/JVM/%E5%A0%86-%E5%B9%B4%E8%BD%BB%E4%BB%A3%E4%B8%8E%E8%80%81%E5%B9%B4%E4%BB%A3.jpg.png)
+
+
+
+* 配置新生代与老年代在堆结构的占比。
+    * 默认`-XX:NewRatio=2`表示新生代占1，老年代占2，新生代占整个堆的1/3
+    * 修改为`-XX:NewRatio=4`表示新生代占1，老年代占4，新生代占整个堆的1/5
+
+> 这参数在开发中一般不会调
+
+* 在HotSpot中，Eden空间和另外两个Survivor空间缺省所占的比例是8:1:1
+* 开发人员可以通过选项`-XX:SurvivorRatio`调整这个空间比例。比如`-XX:SurvivorRation=8`
+* $\color{red}{几乎所有的}$Java对象都是在Eden区被new出来的
+* 绝大部分的Java对象的销毁都在新生代进行
+    * IBM公司的研究表明，新生代中80%的对象都是“朝生夕死”的
+* 使用选项`-Xmn`设置新生代最大内存大小（一般使用默认值）
+
+## 7.4 对象分配过程
+
+为新对象分配内存是一件非常严谨和复杂的任务，JVM的设计者们不仅需要考虑内存如何分配、在哪里分配等问题，并且由于内存分配算法与内存回收算法密切相关，所以还要考虑GC执行完内存回收后是否会在内存空间中产生碎片。
+
+1. new的对象先放Eden区。此区有大小限制
+2. 当Eden区的空间填满时，程序又需要创建对象，JVM的垃圾回收器将对Eden区进行垃圾回收（Minor GC），将Eden区中的不再被其他对象所引用的对象进行销毁。再加载新的对象放到Eden区
+3. 然后将Eden区中剩余的对象移动到幸存者0区。
+4. 如果再次触发垃圾回收，此时上次幸存下来的放到幸存者0区，如果没有回收，就会放到幸存者1区
+5. 如果再次经历垃圾回收，此时会重新放回幸存者0区，接着再去幸存者1区
+6. 默认15次，对象才会被移入养老区（OldGen）
+7. 当老年代内存不足时，再次触发GC，进行老年代区的内存清理
+8. 若老年代执行了GC之后，依然无法进行存储对象，就会产生OOM异常(java.lang.OutOfMemoryError)
+    * 可以设置参数：`-XX:MaxTenuringThreshold=<N>`
+
+> 1. Eden区的数据会首先往to区放，同时把from区的数据也做GC看是否需要，如果还是需要也往to区放，此时的from区会转变成下一次GC的to区。
+> 2. 只有当Eden区满的时候才会触发YGC，S0区满的时候不会触发YGC
+
+* 总结：
+    * 针对幸存者S0,S1区的总结：复制之后有交换，谁空谁是to
+    * 关于垃圾回收：频繁在年轻代收集，很少在老年代收集，几乎不在元空间收集

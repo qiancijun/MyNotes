@@ -636,3 +636,40 @@ Exception in thread "main" java.lang.OutOfMemoryError: Java heap space
 * 总结：
     * 针对幸存者S0,S1区的总结：复制之后有交换，谁空谁是to
     * 关于垃圾回收：频繁在年轻代收集，很少在老年代收集，几乎不在元空间收集
+
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/JVM/%E5%A0%86-%E5%88%86%E9%85%8D%E5%AF%B9%E8%B1%A1%E5%86%85%E5%AD%98%E6%B5%81%E7%A8%8B.jpg.png)
+
+
+
+## 7.5 MinorGC、MajorGC与FullGC
+
+JVM在进行GC时，并非每次都对内存区域（年轻代、老年代、方法区）一起回收，大部分时候回收的都是指年轻代
+
+针对HotSpot VM的实现，它里面的GC按照回收区域又分为两大种类型：一种是部分收集（Partial GC），一种是整堆收集（Full GC）
+
+* 部分收集：不是完整收集整个Java堆的垃圾收集。其中又分为：
+    * 年轻代收集（Minor GC / Young GC）：只是年轻代的垃圾收集
+    * 老年代收集（Major GC / Old GC）：只是老年代的垃圾收集
+        * 目前，只有CMS GC会有单独收集老年代的行为
+        * 很多时候Major GC会和Full GC混淆使用，需要具体分辨是老年代回收还是整堆回收
+    * 混合收集（Mixed GC）：收集整个新生代以及部分老年代的垃圾收集
+        * 目前只有G1 GC会有这种行为
+    * 整堆收集（Full GC）：收集整个Java堆和方法区的垃圾收集
+* 年轻代GC（Minor GC）触发机制：
+    * 当年轻代空间不足时，就会触发Minor GC，这里的年轻代满指的是Eden区满，Survivor满不会引发GC。（每次Minor GC会清理年轻代的内存）
+    * 因为Java对象$\color{red}{大多都具备朝生夕灭}$的特性，所以Minor GC非常频繁，一般回收速度也比较快
+    * Minor GC会引发STW（Stop The World），暂停其他用户的线程，等垃圾回收结束，用户线程才恢复运行
+* 老年代GC（Major GC / Full GC）触发机制：
+    * 指发生在老年代的GC，对象从老年代消失时，就说“Major GC” 或 “Full GC”发生了
+    * 出现了Major GC，经常会伴随至少一次的Minor GC（但非绝对的，在Parallel Scavenge收集器的收集策略里就又有直接进行Major GC的策略选择过程）
+        * 也就是在老年代空间不足时，会先尝试触发Minor GC。如果之后空间还不足，则触发Major GC
+    * Major GC的速度一般会比Minor GC慢10倍以上，STW的时间更长
+    * 如果Major GC后，内存还不足，就报OOM
+* Full GC触发机制
+    * 调用`System.gc()`时，系统建议执行Full GC，但是不必然执行
+    * 老年代空间不足
+    * 方法区空间不足
+    * 通过Minor GC后进入老年代的平均大小大于老年代的可用空间
+    * 有Eden区、Survivor space0区向Survivor space1区复制时，对象大小与Survivor space1可用内存，则把该对象转到老年代，且老年代的可用内存小于该对象大小
+
+> 说明：Full GC是开发或调优中尽量要避免的。这样暂时时间会短一些

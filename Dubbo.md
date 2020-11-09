@@ -335,3 +335,54 @@ registry.register(URL.valueOf("override://0.0.0.0/com.foo.BarService?category=co
 或
 <dubbo:reference cluster="failsafe" />
 ```
+
+### 整合hystrix
+Hystrix 旨在通过控制那些访问远程系统、服务和第三方库的节点，从而对延迟和故障提供更强大的容错能力。Hystrix具备拥有回退机制和断路器功能的线程和信号隔离，请求缓存和请求打包，以及监控和配置等功能
+
+1. 配置spring-cloud-starter-netflix-hystrix
+spring boot官方提供了对hystrix的集成，直接在pom.xml里加入依赖：
+``` xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-hystrix</artifactId>
+    <version>1.4.4.RELEASE</version>
+</dependency>
+```
+在Application类上增加@EnableHystrix来启用hystrix starter：
+``` java
+@SpringBootApplication
+@EnableHystrix
+public class ProviderApplication {
+```
+
+2. 配置Provider端
+在Dubbo的Provider上增加@HystrixCommand配置，这样子调用就会经过Hystrix代理。
+``` java
+@Service(version = "1.0.0")
+public class HelloServiceImpl implements HelloService {
+    @HystrixCommand(commandProperties = {
+     @HystrixProperty(name = "circuitBreaker.requestVolumeThreshold", value = "10"),
+     @HystrixProperty(name = "execution.isolation.thread.timeoutInMilliseconds", value = "2000") })
+    @Override
+    public String sayHello(String name) {
+        // System.out.println("async provider received: " + name);
+        // return "annotation: hello, " + name;
+        throw new RuntimeException("Exception to show hystrix enabled.");
+    }
+}
+```
+
+3. 配置Consumer端
+对于Consumer端，则可以增加一层method调用，并在method上配置@HystrixCommand。当调用出错时，会走到fallbackMethod = "reliable"的调用里。
+``` java
+@Reference(version = "1.0.0")
+private HelloService demoService;
+
+@HystrixCommand(fallbackMethod = "reliable")
+public String doSayHello(String name) {
+    return demoService.sayHello(name);
+}
+public String reliable(String name) {
+    return "hystrix fallback value";
+}
+```

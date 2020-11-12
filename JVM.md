@@ -728,3 +728,34 @@ TLAB
 * 一旦对象在TLAB空间分配内存失败时，JVM就会成实者通过使用$\color{red}{加锁机制}$确保数据操作的原子性，从而直接在Eden空间中分配内存
 
 ![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/JVM/%E5%A0%86-TLAB.jpg)
+
+
+
+## 7.9 堆空间参数设置小结
+
+1. 查看所有的参数的默认初始值
+    * -XX:+PrintFlagsInitial
+2. 查看所有的参数的最终值（可能会存在修改，不再是初始值）
+    * -XX:+PrintFlagsFinal
+3. 初始堆空间内存（默认为物理内存的1/64）
+    * -Xms
+4. 最大堆空间内存（默认为物理内存的1/4）
+    * -Xmx
+5. 设置新生代的大小（初始值及最大值）
+    * -Xmn
+6. 配置新生代与老年代在堆结构的占比
+    * -XX:NewRatio
+7. 具体查看某个参数的指令
+    * jps：查看当前运行中的进程
+    * jinfo -flag SurvivorRatio 进程id
+
+在发生Minor GC之前，虚拟机会检查老年代最大可用的连续空间是否大于新生代所有对象的总空间。
+
+* 如果大于，则此次Minor GC是安全的
+* 如果小于，则虚拟机会查看`-XX:HandlePromotionFailure`设置值是否允许担保失败
+    * 如果`HandlePromotionFailure=true`，那么会继续检查老年代最大可用连续空间是否大于历次晋升到老年代的对象的平均大小
+        * 如果大于，则尝试进行一次Minor GC，但这次Minor GC依然是有风险的
+        * 如果小于，则改为进行一次Full GC
+    * 如果`HandlePromotionFailure=false`，则改为进行一次Full GC
+
+在JDK6 Update24之后，HandlePromotionFailure参数不会再影响到虚拟机的空间分配担保策略，OpenJDK中的源码变化，虽然源码中还定义了HandlePromotionFailure参数，但是在代码中已经不会再使用它。JDK6 Update24之后的规则变为$\color{red}{只要老年代的连续空间大于年轻代对象总大小}$或者$\color{red}{历次晋升的平均大小就会进行Minor GC}$，否则将进行Full GC。

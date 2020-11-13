@@ -787,3 +787,147 @@ TLAB
     * 如果使用的是较早的版本，可以通过选项`-XX: +DoEscapeAnalysis`显式开启逃逸分析
     * 通过选项`-XX: +PrintEscapeAnalysis`查看逃逸分析的筛选结果
 * 结论：开发中能使用局部变量的，就不要使用在方法外定义的
+
+### 代码优化
+使用逃逸分析，编译器可以对代码做如下优化：
+1. 栈上分配
+将堆分配转换为栈分配。如果一个对象在子程序中被分配，要使指向该对象的指针永远不会逃逸，对象可能是栈分配的候选，而不是堆分配
+2. 同步省略
+如果一个对象被发现只能从一个线程被访问到，那么对于这个对象的操作可以不考虑同步
+3. 分离对象或标量替换
+有的对象可能不需要作为一个连续的内存结构存在也可以被访问到，那么对象的部分（或全部）可以不存储在内存，而是存储在CPU寄存器中。
+
+### 栈上分配
+* JIT编译器在编译期间根据逃逸分析的结果，发现如果一个对象并没有逃逸出方法的话，就可能被优化成栈上分配。分配完成后，继续在调用栈内执行，最后线程结束，栈空间被回收，局部变量对象也被回收。这样就无需进行垃圾回收了。
+* 常见的栈上分配的场景
+  * 在逃逸分析中，已经说明了。分别是给成员变量赋值、方法返回值、实例引用传递
+
+演示代码：选项`-Xmx1G -Xms1G -XX:-DoEscapeAnalysis`
+``` java
+public class StackAllocation {
+    public static void main(String[] args) throws Exception {
+        long start = System.currentTimeMillis();
+        for (int i = 0; i < 10000000; i++) {
+            alloc();
+        }
+        long end = System.currentTimeMillis();
+        System.out.println(end - start);
+        Thread.sleep(100000);
+    }
+
+    public static void alloc() {
+        User user = new User();
+    }
+}
+
+class User{}
+```
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/JVM/%E9%80%83%E9%80%B8%E5%88%86%E6%9E%90-%E6%A0%88%E4%B8%8A%E5%88%86%E9%85%8D1.png)
+
+由于没有开启逃逸分析，所以所有的`User`对象都被分配在了堆空间上，尽管`alloc`方法没有发生逃逸。
+减小虚拟机堆内存空间，打印GC日志`-Xmx256m -Xms256m -XX:-DoEscapeAnalysis -XX:+PrintGCDetails`
+输出结果：
+```
+[0.006s][warning][gc] -XX:+PrintGCDetails is deprecated. Will use -Xlog:gc* instead.
+[0.021s][info   ][gc,heap] Heap region size: 1M
+[0.032s][info   ][gc     ] Using G1
+[0.033s][info   ][gc,heap,coops] Heap address: 0x00000000f0000000, size: 256 MB, Compressed Oops mode: 32-bit
+[0.210s][info   ][gc,start     ] GC(0) Pause Young (Normal) (G1 Evacuation Pause)
+[0.211s][info   ][gc,task      ] GC(0) Using 6 workers of 8 for evacuation
+[0.213s][info   ][gc,phases    ] GC(0)   Pre Evacuate Collection Set: 0.0ms
+[0.213s][info   ][gc,phases    ] GC(0)   Evacuate Collection Set: 1.4ms
+[0.213s][info   ][gc,phases    ] GC(0)   Post Evacuate Collection Set: 0.2ms
+[0.213s][info   ][gc,phases    ] GC(0)   Other: 0.9ms
+[0.213s][info   ][gc,heap      ] GC(0) Eden regions: 24->0(152)
+[0.213s][info   ][gc,heap      ] GC(0) Survivor regions: 0->1(3)
+[0.213s][info   ][gc,heap      ] GC(0) Old regions: 0->0
+[0.213s][info   ][gc,heap      ] GC(0) Humongous regions: 0->0
+[0.213s][info   ][gc,metaspace ] GC(0) Metaspace: 807K->807K(1056768K)
+[0.213s][info   ][gc           ] GC(0) Pause Young (Normal) (G1 Evacuation Pause) 24M->1M(256M) 2.558ms
+[0.213s][info   ][gc,cpu       ] GC(0) User=0.00s Sys=0.00s Real=0.00s
+140
+```
+由于对象全都被分配了到了堆空间中，导致堆内存满，会引发GC。
+开启逃逸分析`-Xmx256m -Xms256m -XX:+DoEscapeAnalysis -XX:+PrintGCDetails`
+输出结果：
+```
+[0.008s][warning][gc] -XX:+PrintGCDetails is deprecated. Will use -Xlog:gc* instead.
+[0.022s][info   ][gc,heap] Heap region size: 1M
+[0.034s][info   ][gc     ] Using G1
+[0.034s][info   ][gc,heap,coops] Heap address: 0x00000000f0000000, size: 256 MB, Compressed Oops mode: 32-bit
+8
+```
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/JVM/%E9%80%83%E9%80%B8%E5%88%86%E6%9E%90-%E6%A0%88%E4%B8%8A%E5%88%86%E9%85%8D%E4%BC%98%E5%8C%96.png)
+没有引发GC，并且对象的数量明显小于没有开启逃逸分析的情况
+
+### 同步省略
+* 线程同步的代价是相当高的，同步的后果是降低并发性和性能
+* 在动态编译同步块的时候，JIT编译器可以借助逃逸分析来$\color{red}{判断同步块所使用的锁对象是否只能够被一个线程访问而没有被发布到其他线程}$。如果没有，那么JIT编译器在编译这个同步块的时候就会取消这部分代码的同步。这样就能大大提高并发现和性能。这个取消同步的过程就叫同步省略，也叫$\color{red}{锁消除}$
+
+实例代码：
+``` java
+public void f() {
+    Object hollis = new Object();
+    synchronized (hollis) {
+        System.out.println(hollis);
+    }
+}
+```
+代码中对`hollis`这个对象进行加锁，但是`hollis`对象的生命周期旨在`f()`方法中，并不会被其他线程所访问到，所以在JIT编译阶段就会被优化掉。优化成：
+``` java
+public void f() {
+    Object hollis = new Object();
+    System.out.println(hollis);
+}
+```
+字节码文件依旧有`synchronized`，只有在运行的时候才会考虑去除
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/JVM/%E9%80%83%E9%80%B8%E5%88%86%E6%9E%90-%E5%90%8C%E6%AD%A5%E7%9C%81%E7%95%A5.png)
+
+### 分离对象或标量替换
+* 标量：是指一个无法再分解成更小的数据的数据。Java中的原始数据类型就是标量。
+* 聚合量：相对标量，那些还可以分解的数据叫做聚合量，Java中的对象就是聚合量，因为他可以分解成其他聚合量和标量。
+
+在JIT阶段，如果经过逃逸分析，发现一个对象不会被外界访问的话，那么经过JIT优化，就会把这个对象拆解成若干个其中包含的若干个成员变量来代替。这个过程就是标量替换。
+
+示例代码：
+``` java
+public static void main(String[] args) {
+    alloc();
+}
+private static void alloc() {
+    Point point = new Point(1, 2);
+    System.out.println(point.x + ' ' + point.y);
+}
+class Point {
+    private int x;
+    private int y;
+}
+```
+以上代码，经过标量替换后，就会变成：
+``` java
+private static void alloc() {
+    int x = 1;
+    int y = 1;
+    System.out.println(x + ' '+ y);
+}
+```
+Point这个聚合量经过逃逸分析后，发现他并没有逃逸，就被替换成两个标量了。标量替换可以大大减少堆内存的使用。因为一旦不需要创建对象了，那么就不再需要分配堆内存了。
+
+* 参数 `-XX: +EliminateAllocations`开启标量替换（默认打开），允许将对象打散分配在栈上。
+
+## 7.11 代码优化及堆小结
+参数小结：
+* `-server`：启动Server模式，因为在Server模式下，才可以启用逃逸分析
+* `-XX:+DoEscapeAnalysis`：启用逃逸分析
+* `-Xmx10m`：指定了堆空间最大为10MB
+* `-XX:+PrintGC`：打印GC日志
+* `-XX:+EliminateAllocations`：开启标量替换，默认大考，允许将对象打散分配在栈上。比如对象拥有id和name两个字段，那么这两个字段将会被视为两个独立的局部变量进行分配
+
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/JVM/%E9%80%83%E9%80%B8%E5%88%86%E6%9E%90-Server.png)
+通过`java -version`可以发现，64位操作系统下，默认启用Server模式，不用调用-server模式
+
+* 关于逃逸分析的论文在1999年就已经发表了，但直到JDK1.6才有实现，而且这项技术到如今也并不是十分成熟。其根本原因就是，无法保证逃逸分析的性能小号一定能高于他的消耗。虽然经过逃逸分析可以做标量替换、栈上分配、锁消除。但是逃逸分析自身也是需要进行一些列复杂的分析，这其实也是一个相对耗时的过程。
+* 举一个非常极端的例子，经过逃逸分析后，发现没有一个对象是不逃逸的。那这个逃逸分析的过程就白白浪费掉了。
+* 虽然这项技术并不十分成熟，但是它也是$\color{red}{是即时编译器优化技术中一个十分重要的手段}$
+* 有一些观点认为，通过逃逸分析，JVM会在栈上分配那些不会逃逸的对象，这在理论上是可行的，但是取决于JVM设计者的选择。在HotSpot JVM中并没有那么做，这一点逃逸分析相关的文档里已经说明，所以可以明确所有的对象实例都是创建在堆上。
+* intern字符串的缓存和静态变量曾经都被分配在永久代上，而永久代已经被元空间取代。但是，intern字符串缓存和静态变量并不是被转移到了元空间，而是直接在堆上分配，所以这一点同样符合前面一点的结论：对象实例都是分配在堆上。

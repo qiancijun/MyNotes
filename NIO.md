@@ -18,7 +18,37 @@ Java NIO系统的核心在于：通道(Channel)和缓冲区(Buffer)。通道表�
 
 * 缓冲区：一个用于特定基本数据类型的容器。由 java.nio 包定义的，所有缓冲区都是 Buffer 抽象类的子类。Java NIO 中的 Buffer 主要用于与 NIO 通道进行交互，数据是从通道读入缓冲区，从缓冲区写入通道中的。
 
+* Buffer 就像一个数组，可以保存多个相同类型的数据。根据数据类型不同(boolean 除外) ，有以下 Buffer 常用子类：
+    * ByteBuffer
+    * CharBuffer
+    * ShortBuffer
+    * IntBuffer
+    * LongBuffer
+    * FloatBuffer
+    * DoubleBuffer
+* 上述 Buffer 类 他们都采用相似的方法进行管理数据，只是各自管理的数据类型不同而已。都是通过如下方法获取一个 Buffer对象：`static XxxBuffer allocate(int capacity)` : 创建一个容量为 capacity 的 XxxBuffer 对象
+
+
 # 缓冲区
+
+* Buffer 中的重要概念：
+    * 容量 (capacity) ：表示 Buffer 最大数据容量，缓冲区容量不能为负，并且创建后不能更改。
+    * 限制 (limit)：第一个不应该读取或写入的数据的索引，即位于 limit 后的数据不可读写。缓冲区的限制不能为负，并且不能大于其容量。
+    * 位置 (position)：下一个要读取或写入的数据的索引。缓冲区的位置不能为负，并且不能大于其限制
+    * 标记 (mark)与重置 (reset)：标记是一个索引，通过 Buffer 中的 mark() 方法指定 Buffer 中一个特定的 position，之后可以通过调用 reset() 方法恢复到这个 position.
+
+* Buffer 所有子类提供了两个用于数据操作的方法：get()与 put() 方法
+
+* 获取 Buffer 中的数据
+    * get() ：读取单个字节
+    * get(byte[] dst)：批量读取多个字节到 dst 中
+    * get(int index)：读取指定索引位置的字节(不会移动 position)
+
+* 放入数据到 Buffer 中
+    * put(byte b)：将给定单个字节写入缓冲区的当前位置
+    * put(byte[] src)：将 src 中的字节写入缓冲区的当前位置
+    * put(int index, byte b)：将指定字节写入缓冲区的索引位置(不会移动 position)
+
 
 ## 直接缓冲区与非直接缓冲区
 * 非直接缓冲区：通过`allocate()`方法分配缓冲区，将缓冲区建立在JVM的内存中
@@ -195,3 +225,16 @@ public void test3() throws Exception {
 }
 ```
 > Charset提供了decoder方法，可以不用获取解码器与编码器
+
+# 阻塞与非阻塞
+* 传统的 IO 流都是阻塞式的。也就是说，当一个线程调用 read() 或 write()时，该线程被阻塞，直到有一些数据被读取或写入，该线程在此期间不能执行其他任务。因此，在完成网络通信进行 IO 操作时，由于线程会阻塞，所以服务器端必须为每个客户端都提供一个独立的线程进行处理，当服务器端需要处理大量客户端时，性能急剧下降。
+* Java NIO 是非阻塞模式的。当线程从某通道进行读写数据时，若没有数据可用时，该线程可以进行其他任务。线程通常将非阻塞 IO 的空闲时间用于在其他通道上执行 IO 操作，所以单独的线程可以管理多个输入和输出通道。因此，NIO 可以让服务器端使用一个或有限几个线程来同时处理连接到服务器端的所有客户端。
+
+## 选择器
+* 选择器（Selector） 是 SelectableChannle 对象的多路复用器，Selector 可以同时监控多个 SelectableChannel 的 IO 状况，也就是说，利用 Selector可使一个单独的线程管理多个 Channel。Selector 是非阻塞 IO 的核心。
+
+## NIO网络通信
+* 使用 NIO 完成网络通信的三个核心：
+    1. 通道（Channel）：负责连接
+    2. 缓冲区（Buffer）：负责数据的存取
+    3. 选择器（Selector）：是SelectableChannel的多路复用器，用于监控SelectableChannel的IO状况

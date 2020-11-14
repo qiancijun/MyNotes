@@ -238,3 +238,159 @@ public void test3() throws Exception {
     1. 通道（Channel）：负责连接
     2. 缓冲区（Buffer）：负责数据的存取
     3. 选择器（Selector）：是SelectableChannel的多路复用器，用于监控SelectableChannel的IO状况
+
+* 阻塞式
+``` java
+public class TestNIO {
+    @Test
+    public void client() throws Exception {
+        // 创建通道
+        SocketChannel socketChannel = SocketChannel.open(new InetSocketAddress("127.0.0.1", 8888));
+        FileChannel fileChannel = FileChannel.open(Paths.get("1.jpg"), StandardOpenOption.READ);
+        // 创建缓冲区
+        ByteBuffer buf = ByteBuffer.allocate(1024);
+        // 读取本地文件，并发送到服务端
+        while (fileChannel.read(buf) != -1) {
+            buf.flip();
+            socketChannel.write(buf);
+            buf.clear();
+        }
+        socketChannel.close();
+        fileChannel.close();
+    }
+
+    @Test
+    public void Server() throws Exception {
+        // 获取通道
+        ServerSocketChannel ssChannel = ServerSocketChannel.open();
+        FileChannel fileChannel = FileChannel.open(Paths.get("2.jpg"), StandardOpenOption.WRITE, StandardOpenOption.CREATE);
+        // 绑定连接
+        ssChannel.bind(new InetSocketAddress(8888));
+        // 获取客户端的连接
+        SocketChannel sChannel = ssChannel.accept();
+        ByteBuffer buf = ByteBuffer.allocate(1024);
+        // 接受客户端的数据，并保存到本地
+        while (sChannel.read(buf) != -1) {
+            buf.flip();
+            fileChannel.write(buf);
+            buf.clear();
+        }
+        sChannel.close();
+        fileChannel.close();
+        ssChannel.close();
+    }
+}
+```
+
+* 非阻塞式
+``` java
+public class TestNonBlocking {
+    @Test
+    public void client() throws Exception {
+        // 1. 获取通道
+        SocketChannel sChannel = SocketChannel.open(new InetSocketAddress("127.0.0.1", 8888));
+        // 2. 切换为非阻塞式
+        sChannel.configureBlocking(false);
+        // 3. 分配指定大小缓冲区
+        ByteBuffer buf = ByteBuffer.allocate(1024);
+        // 4. 发送数据给服务端
+        buf.put(LocalDateTime.now().toString().getBytes());
+        buf.flip();
+        sChannel.write(buf);
+        buf.clear();
+
+        sChannel.close();
+    }
+
+    @Test
+    public void Server() throws Exception {
+        // 1. 获取通道
+        ServerSocketChannel ssChannel = ServerSocketChannel.open();
+        // 2. 切换成非阻塞模式
+        ssChannel.configureBlocking(false);
+        // 3. 绑定连接
+        ssChannel.bind(new InetSocketAddress(8888));
+        // 4. 获取选择器
+        Selector selector = Selector.open();
+        // 5. 将通道注册到选择器上，并且指定监听事件
+        ssChannel.register(selector, SelectionKey.OP_ACCEPT);
+        // 6. 轮询式的获取选择器上已经准备就绪的事件
+        while (selector.select() > 0) {
+            // 7. 获取当前选择器中所有注册的选择键
+            Iterator<SelectionKey> it = selector.selectedKeys().iterator();
+            // 8. 迭代获取准备就绪的事件
+            while (it.hasNext()) {
+                SelectionKey selectionKey = it.next();
+                // 9. 判断具体是什么事件准备就绪
+                if(selectionKey.isAcceptable()) {
+                    // 10. 若接受状态就绪，就获取客户端连接
+                    SocketChannel sChannel = ssChannel.accept();
+                    // 11. 切换非阻塞模式
+                    sChannel.configureBlocking(false);
+                    // 12. 将该通道注册到选择器上
+                    sChannel.register(selector, SelectionKey.OP_READ);
+                } else if (selectionKey.isReadable()) {
+                    // 13. 获取当前选择器上 读就绪状态的通道
+                    SocketChannel schannel = (SocketChannel) selectionKey.channel();
+                    // 14. 读取数据
+                    ByteBuffer buf = ByteBuffer.allocate(1024);
+                    int len = 0;
+                    while ((len = schannel.read(buf)) != -1) {
+                        buf.flip();
+                        System.out.println(new String(buf.array(), 0, len));
+                        buf.clear();
+                    }
+                }
+                // 15. 取消选择键
+                it.remove();
+            }
+        }
+
+    }
+
+
+}
+```
+
+* UDP
+``` java
+public class TestNonBlocking2 {
+
+    @Test
+    public void send() throws Exception {
+        DatagramChannel dChannel = DatagramChannel.open();
+        dChannel.configureBlocking(false);
+        ByteBuffer buf = ByteBuffer.allocate(1024);
+        buf.put(LocalDateTime.now().toString().getBytes());
+        buf.flip();
+        dChannel.send(buf, new InetSocketAddress("127.0.0.1", 8888));
+        buf.clear();
+        dChannel.close();
+    }
+
+    @Test
+    public void receive() throws Exception {
+        DatagramChannel dChannel = DatagramChannel.open();
+        dChannel.configureBlocking(false);
+        dChannel.bind(new InetSocketAddress(8888));
+        Selector selector = Selector.open();
+        dChannel.register(selector, SelectionKey.OP_READ);
+
+        while (selector.select() > 0) {
+            Iterator<SelectionKey> it = selector.selectedKeys().iterator();
+            while (it.hasNext()) {
+                SelectionKey sk = it.next();
+                if (sk.isReadable()) {
+                    ByteBuffer buf = ByteBuffer.allocate(1024);
+                    dChannel.receive(buf);
+                    System.out.println(new String(buf.array(), 0, buf.limit()));
+                    buf.clear();
+                }
+                it.remove();
+            }
+        }
+
+    }
+
+}
+```

@@ -60,7 +60,7 @@ tags:
 输入20，在按下shift + g
 ```
 
-![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/Linux/vi-vim-cheat-sheet-sch1.jpg)
+<img src="https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/Linux/vi-vim-cheat-sheet-sch1.jpg" style="zoom:100%;" />
 
 # Linux常用指令
 
@@ -717,6 +717,47 @@ netstat -anp
 ```
 netstat -anp | grep sshd
 ```
+
+
+
+## 关闭防火墙
+
+* 停止firewall
+
+```
+systemctl stop firewalld.service
+```
+
+* 禁止开机自启
+
+```
+systemctl disable firewalld.service 
+```
+
+* 查看开放的端口号
+
+``` 
+firewall-cmd --list-all
+```
+
+* 设置开放的端口号
+
+```
+firewall-cmd --add-service=http –permanent
+sudo firewall-cmd --add-port=80/tcp --permanent
+```
+
+* 重启防火墙
+
+``` 
+firewall-cmd –reload
+```
+
+
+
+
+
+
 
 # 包管理
 

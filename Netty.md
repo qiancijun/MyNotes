@@ -1524,3 +1524,321 @@ Google的Protobuf在业界非常流行，很多商业项目选择Protobuf作为�
 
 Protobuf是一个灵活、高效、结构化的数据序列化框架，相比于XML等传统的序列化工具，更小，更简单。Protobuf支持数据结构化一次可以到处使用，甚至跨语言使用，通过代码生成工具可以自动生成不同语言版本的源代码，甚至可以在不同版本的数据结构进程间进行数据传递，实现数据结构的前向兼容。
 
+
+
+## 6.2 Protobuf开发环境搭建
+
+[Protobuf Github](https://github.com/protocolbuffers/protobuf)
+
+
+
+maven坐标
+
+``` xml
+<dependency>
+  <groupId>com.google.protobuf</groupId>
+  <artifactId>protobuf-java</artifactId>
+  <version>3.11.0</version>
+</dependency>
+```
+
+
+
+Proto文件
+
+``` protobuf
+syntax = "proto3"; // 版本
+
+option java_outer_classname = "MyDataInfo"; // 生成的外部类名，也是文件名
+option java_package = "com.qiancijun.netty.protobuf";
+option optimize_for = SPEED;
+
+message MyMessage {
+  enum DataType {
+    Person = 0; // 在proto3里，要从0开始编号
+    Student = 1;
+  }
+  // 用data_type来标识传递的是哪一个枚举类型
+  DataType data_type = 1;
+
+  // 表示每次枚举类型最多只能出现其中的一个，节省空间
+  oneof dataBody {
+    Person person = 2;
+    Student student = 3;
+  }
+}
+
+message Person {
+  int32 id = 1; // 表示id是第一个属性，不是默认值
+  string name = 2;
+}
+
+message Student {
+  int32 id = 1;
+  int32 age = 2;
+}
+```
+
+输入`protoc.exe --java_out=. 文件名`进行代码生成
+
+
+
+
+
+## 6.3 客户端和服务端代码
+
+服务端
+
+``` java
+public class ProtoBufServer {
+    public static void main(String[] args) {
+        EventLoopGroup bossGroup = new NioEventLoopGroup(1);
+        EventLoopGroup workerGroup = new NioEventLoopGroup();
+        try {
+            ServerBootstrap server = new ServerBootstrap();
+            server.group(bossGroup, workerGroup)
+                    .channel(NioServerSocketChannel.class)
+                    .childHandler(new ChannelInitializer<SocketChannel>() {
+                        @Override
+                        protected void initChannel(SocketChannel ch) throws Exception {
+                            ch.pipeline().addLast(new ProtobufDecoder(MyDataInfo.MyMessage.getDefaultInstance()));
+                            ch.pipeline().addLast(new ProtoBufServerHandler());
+                        }
+                    });
+            ChannelFuture f = server.bind(8888).sync();
+            f.channel().closeFuture().sync();
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            bossGroup.shutdownGracefully();
+            workerGroup.shutdownGracefully();
+        }
+    }
+}
+```
+
+服务端处理器
+
+``` java
+public class ProtoBufServerHandler extends SimpleChannelInboundHandler<MyDataInfo.MyMessage> {
+    @Override
+    protected void channelRead0(ChannelHandlerContext ctx, MyDataInfo.MyMessage msg) throws Exception {
+        MyDataInfo.MyMessage.DataType dataType = msg.getDataType();
+        if (dataType == MyDataInfo.MyMessage.DataType.Person) {
+            MyDataInfo.Person person = msg.getPerson();
+            System.out.println(person.getId() + " " + person.getName());
+        } else if (dataType == MyDataInfo.MyMessage.DataType.Student) {
+            MyDataInfo.Student student = msg.getStudent();
+            System.out.println(student.getId() + " " + student.getAge());
+        }
+    }
+
+    @Override
+    public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+        ctx.close();
+    }
+}
+```
+
+客户端
+
+``` java
+public class ProtoBufClient {
+    public static void main(String[] args) {
+        EventLoopGroup group = new NioEventLoopGroup();
+        try {
+            Bootstrap bootstrap = new Bootstrap();
+            bootstrap.group(group)
+                    .channel(NioSocketChannel.class)
+                    .handler(new ChannelInitializer<SocketChannel>() {
+                        @Override
+                        protected void initChannel(SocketChannel ch) throws Exception {
+                            ch.pipeline().addLast(new ProtobufEncoder());
+                            ch.pipeline().addLast(new ProtoBufClientHandler());
+                        }
+                    });
+            ChannelFuture f = bootstrap.connect("127.0.0.1", 8888).sync();
+            f.channel().closeFuture().sync();
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            group.shutdownGracefully();
+        }
+    }
+}
+```
+
+客户端处理器
+
+``` java
+public class ProtoBufClientHandler extends ChannelInboundHandlerAdapter {
+    @Override
+    public void channelActive(ChannelHandlerContext ctx) throws Exception {
+        int random = new Random().nextInt(3);
+        MyDataInfo.MyMessage myMessage = null;
+        if (0 == random) {
+            myMessage = MyDataInfo.MyMessage.newBuilder().setDataType(MyDataInfo.MyMessage.DataType.Person).
+                    setPerson(MyDataInfo.Person.newBuilder()
+                            .setId(1)
+                            .setName("Qiancijun")
+                            .build())
+                    .build();
+        } else {
+            myMessage = MyDataInfo.MyMessage.newBuilder().setDataType(MyDataInfo.MyMessage.DataType.Student).
+                    setStudent(MyDataInfo.Student.newBuilder()
+                            .setId(1)
+                            .setAge(10)
+                            .build())
+                    .build();
+        }
+        ctx.writeAndFlush(myMessage);
+    }
+}
+```
+
+
+
+## 6.4 注意事项
+
+ProtobufDecoder仅仅负责解码，它不支持读半包。因此，在ProtobufDecoder前面，一定要有能够处理读半包的解码器，有以下三种方式可以选择
+
+1. 使用Netty提供的ProtobufVarint32FrameDecoder，它可以处理半包消息
+2. 继承Netty提供的通用半包解码器LengthFieldBasedFrameDecoder
+3. 继承ByteToMessageDecoder类，自己处理半包消息
+
+如果只使用ProtobufDecoder解码器而忽略对半包消息的处理，程序是不能正常工作的。
+
+服务端
+
+``` java
+public class ProtoBufServer {
+    public static void main(String[] args) {
+        EventLoopGroup bossGroup = new NioEventLoopGroup(1);
+        EventLoopGroup workerGroup = new NioEventLoopGroup();
+        try {
+            ServerBootstrap server = new ServerBootstrap();
+            server.group(bossGroup, workerGroup)
+                    .channel(NioServerSocketChannel.class)
+                    .childHandler(new ChannelInitializer<SocketChannel>() {
+                        @Override
+                        protected void initChannel(SocketChannel ch) throws Exception {
+                            ch.pipeline().addLast(new ProtobufVarint32FrameDecoder());
+                            ch.pipeline().addLast(new ProtobufDecoder(MyDataInfo.MyMessage.getDefaultInstance()));
+                            ch.pipeline().addLast(new ProtobufVarint32LengthFieldPrepender());
+                            ch.pipeline().addLast(new ProtoBufServerHandler());
+                        }
+                    });
+            ChannelFuture f = server.bind(8888).sync();
+            f.channel().closeFuture().sync();
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            bossGroup.shutdownGracefully();
+            workerGroup.shutdownGracefully();
+        }
+    }
+}
+```
+
+客户端
+
+``` java
+public class ProtoBufClient {
+    public static void main(String[] args) {
+        EventLoopGroup group = new NioEventLoopGroup();
+        try {
+            Bootstrap bootstrap = new Bootstrap();
+            bootstrap.group(group)
+                    .channel(NioSocketChannel.class)
+                    .handler(new ChannelInitializer<SocketChannel>() {
+                        @Override
+                        protected void initChannel(SocketChannel ch) throws Exception {
+                            ch.pipeline().addLast(new ProtobufVarint32LengthFieldPrepender());
+                            ch.pipeline().addLast(new ProtobufEncoder());
+                            ch.pipeline().addLast(new ProtoBufClientHandler());
+                        }
+                    });
+            ChannelFuture f = bootstrap.connect("127.0.0.1", 8888).sync();
+            f.channel().closeFuture().sync();
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            group.shutdownGracefully();
+        }
+    }
+}
+```
+
+
+
+
+
+<!-- # 七、HTTP协议开发应用
+
+* HTTP（超文本传输协议）是建立在TCP传输协议之上的应用层协议，它的发展是万维网协会和Internet工作小组IETF合作的结果。HTTP是一个属于应用层的面向对象的协议，由于其简捷、快速的方式，适用于分布式超媒体信息系统
+* 由于HTTP协议是目前Web开发的主流协议，基于HTTP的应用非常广泛，因此，掌握HTTP的开发非常重要。
+
+
+
+## 7.1 HTTP协议
+
+HTTP协议的主要特点：
+
+1. 支持Client/Server模式
+2. 简单——客户向服务器请求服务时，只需指定服务URL，携带必要的请求参数或者消息体
+3. 灵活——HTTP允许传输任意类型的数据对象，传输的内容类型由HTTP消息头中的Content-Type加以标记
+4. 无状态——HTTP协议是无状态协议，无状态是指协议对于事物处理没有记以能力，缺少状态意味着如果后续处理需要之前的信息，则它必须重传，这样可能导致每次连接传送的数据增大。另一方面，在服务器不需要先前信息时它的应答较快，负载较轻
+
+### 7.1.1 HTTP协议的URL
+
+HTTP URL（URL是一种特殊类型的URI，包含了用于查找某个资源的足够的信息）格式如下：
+```
+http://[":"port][abs_path]
+```
+其中，http表示要通过HTTP协议来定位网络资源；host表示合法的Internet主机域名或者IP地址；port指定一个端口号，为空则使用默认80端口；abs_path指定请求资源的URI，如果URL中没有给出abs_path，那么当它作为请求URI时，必须以"/"的形式给出
+
+### 7.1.2 HTTP请求消息（HttpRequest）
+HTTP请求由三部分组成
+
+1. HTTP请求行
+2. HTTP消息头
+3. HTTP请求正文
+
+* 请求行以一个方法符开头，以空格分开，后面跟着请求的URI和协议的版本，格式为：Method Request-URI HTTP-Version CRLF
+* Method表示请求方法，Request-URI是一个统一资源标识符，HTTP-Version表示请求的HTTP版本协议，CRLF表示回车和换行（除了作为结尾的CRLF外，不允许出现单独的CR或LF字符）
+
+## 7.2 Netty HTTP开发 -->
+
+<!-- # 七、Netty源码分析
+
+## 7.1 ByteBuf和相关辅助类
+
+### 7.1.1 ByteBuf功能说明
+* 当我们进行数据传输的时候，往往需要使用到缓冲区，常用的缓冲区就是JDK NIO类库提供的java.nio.Buffer。
+* 实际上7中基础类型（Boolean除外）都有自己的缓冲区实现。对于NIO编程而言，主要使用的是ByteBuffer。从功能角度而言，ByteBuffer完全可以满足NIO编程的需要，但是由于NIO编程的复杂性，ByteBuffer也有其局限性，它的主要缺点如下：
+    1. ByteBuffer长度固定，一旦分配完成，它的容量不能动态扩展和收缩，当需要编码的POJO对象大于ByteBuffer的容量时，会发生索引越界异常
+    2. ByteBuffer只有一个标识位置的指针position，读写的时候需要手动调用`flip()`和`rewind()`，使用者必须小心谨慎的处理这些API
+    3. ByteBuffer的API功能有限，一些高级和实用的特性它不支持，需要使用者自己手动实现
+
+为了弥补这些不足，Netty提供了自己ByteBuffer实现——ByteBuf
+
+### 7.1.2 ByteBuf的工作原理
+* ByteBuf依然是一个Byte数组的缓冲区，它的基本功能应该和JDK的ByteBuffer一致，提供以下几类的基本功能：
+    1. 7中Java基础类型、byte数组、ByteBuffer等的读写
+    2. 缓冲区自身的copy和slice等
+    3. 设置网络字节序
+    4. 构造缓冲区实例
+    5. 操作位置指针等方法
+
+* ByteBuf通过两个位置指针来协调缓冲区的读写操作，读操作使用readerIndex，写操作使用writerIndex。readerIndex和writerIndex的取值一开始都是0，随着数据的写入wreterIndex会增加，读取数据会使readerIndex增加，但是它不会超过writerIndex。在读取之后0到readerIndex就被视为discard的，调用discardReadBytes方法，可以释放这部分空间，它的作用类似ByteBuffer的compact方法。readerIndex和writerIndex之间的数据是可读取的，等价于ByteBuffer position和limit之间的数据。writerIndex和capacity之间的空间是可写的，等价于ByteBuffer limit和capacity之间的可用空间。
+* 由于写操作不修改readerIndex指针，读操作不修改writerIndex指针，因此读写之间不再需要调整位置指针，这极大简化了缓冲区的读写操作，避免了由于遗漏或者不熟悉`flip()`操作导致的功能异常
+* 通常情况下，对ByteBuffer进行`put`操作的时候，如果缓冲区剩余可写空间不够，就会发生`BufferOverflowException`异常。为了避免发生这个问题，通常在`put`操作的时候，会对剩余可用空间进行校验，如果剩余空间不足，需要重新创建一个新的ByteBuffer，并将之前的ByteBuffer复制到新的ByteBuffer中，最后释放老的ByteBuffer
+
+
+## 7.2 Channel和Unsafe
+
+## 7.3 ChannelPipeline和ChannelHandler
+
+## 7.4 EventLoop和EventLoopGroup
+
+## 7.5 Future和Promise -->

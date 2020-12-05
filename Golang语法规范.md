@@ -76,8 +76,6 @@ func main() {
 
 
 
-
-
 ### 1.3.1 多值返回
 
 函数可以返回任意数量的返回值。
@@ -119,6 +117,14 @@ func main() {
 	fmt.Println(a, b)
 }
 ```
+
+
+
+### 1.3.3 函数值
+
+函数也是值。它们可以像其它值一样传递。
+
+函数值可以用作函数的参数或返回值。
 
 
 
@@ -422,6 +428,45 @@ func main() {
 	for {
 	}
 }
+```
+
+
+
+### 2.1.3 range
+
+`for` 循环的 `range` 形式可遍历切片或映射。
+
+当使用 `for` 循环遍历切片时，每次迭代都会返回两个值。第一个值为当前元素的下标，第二个值为该下标所对应元素的一份副本。
+
+``` go
+import "fmt"
+
+func main() {
+	a := [5]int {1, 2, 3, 4, 5}
+	for i, v := range a {
+		fmt.Println("下标：", i, " ", "值：", v)
+	}
+}
+/*
+下标： 0   值： 1
+下标： 1   值： 2
+下标： 2   值： 3
+下标： 3   值： 4
+下标： 4   值： 5
+*/
+```
+
+可以将下标或值赋予 `_` 来忽略它。
+
+```
+for i, _ := range a
+for _, value := range a
+```
+
+若你只需要索引，忽略第二个变量即可。
+
+```
+for i := range a
 ```
 
 
@@ -975,5 +1020,501 @@ b = b[:cap(b)] // len(b)=5, cap(b)=5
 b = b[1:]      // len(b)=4, cap(b)=4
 ```
 
-`make`
+​	
+
+### 3.4.6 切片中的切片
+
+切片可包含任何类型，甚至包括其它的切片。
+
+``` go
+import "fmt"
+
+func main() {
+	a := make([][]int, 4)
+	for i := 0; i < len(a); i++ {
+		a[i] = make([]int, 4)
+		for j := 0; j < len(a[i]); j++ {
+			a[i][j] = j
+		}
+	}
+
+	for i := 0; i < len(a); i++ {
+		for j := 0; j < len(a[i]); j++ {
+			fmt.Print(j, " ")
+		}
+		fmt.Println()
+	}
+}
+
+/*
+0 1 2 3 
+0 1 2 3 
+0 1 2 3 
+0 1 2 3
+*/
+```
+
+
+
+### 3.4.7 向切片追加元素
+
+为切片追加新的元素是种常用的操作，为此 Go 提供了内建的 `append` 函数。内建函数的[文档](https://go-zh.org/pkg/builtin/#append)对此函数有详细的介绍。
+
+```
+func append(s []T, vs ...T) []T
+```
+
+`append` 的第一个参数 `s` 是一个元素类型为 `T` 的切片，其余类型为 `T` 的值将会追加到该切片的末尾。
+
+`append` 的结果是一个包含原切片所有元素加上新添加元素的切片。
+
+当 `s` 的底层数组太小，不足以容纳所有给定的值时，它就会分配一个更大的数组。返回的切片会指向这个新分配的数组。
+
+（要了解关于切片的更多内容，请阅读文章 [Go 切片：用法和本质](https://blog.go-zh.org/go-slices-usage-and-internals)。）
+
+
+
+``` go
+import "fmt"
+
+func main() {
+	a := make([]int, 0, 4)
+	a = append(a, 1)
+	a = append(a, 2)
+	a = append(a, 3)
+	a = append(a, 4)
+	for i := 0; i < len(a); i++ {
+		fmt.Println(a[i])
+	}
+}
+```
+
+
+
+## 3.5 映射
+
+映射将键映射到值。
+
+映射的零值为 `nil` 。`nil` 映射既没有键，也不能添加键。
+
+`make` 函数会返回给定类型的映射，并将其初始化备用。
+
+
+
+``` go
+import "fmt"
+
+func main() {
+	m := make(map[int]int) // 中括号里的是键，后面的是值
+	m[1] = 1
+	m[0] = 0
+	fmt.Println(m[1])
+	fmt.Println(m[0])
+}
+```
+
+映射的文法与结构体相似，不过必须有键名。
+
+``` go
+import "fmt"
+
+func main() {
+	var m = map[int]int {
+		1 : 1,
+		0 : 0, // 必须有逗号
+	}
+	fmt.Println(m[1])
+	fmt.Println(m[0])
+}
+```
+
+若顶级类型只是一个类型名，你可以在文法的元素中省略它。
+
+``` go
+import "fmt"
+
+type Point struct {
+	x,y int
+}
+
+func main() {
+	var m = map[int]Point {
+        1 : {1, 1}, // 1 : Point{1, 1},
+        2 : {2, 2}, // 2 : Point{2, 2},
+	}
+	fmt.Println(m[1])
+	fmt.Println(m[2])
+}
+
+```
+
+
+
+### 3.5.1 修改映射
+
+在映射 `m` 中插入或修改元素：
+
+```
+m[key] = elem
+```
+
+获取元素：
+
+```
+elem = m[key]
+```
+
+删除元素：
+
+```
+delete(m, key)
+```
+
+通过双赋值检测某个键是否存在：
+
+```
+elem, ok = m[key]
+```
+
+若 `key` 在 `m` 中，`ok` 为 `true` ；否则，`ok` 为 `false`。
+
+若 `key` 不在映射中，那么 `elem` 是该映射元素类型的零值。
+
+同样的，当从映射中读取某个不存在的键时，结果是映射的元素类型的零值。
+
+**注** ：若 `elem` 或 `ok` 还未声明，你可以使用短变量声明：
+
+```
+elem, ok := m[key]
+```
+
+``` go
+import "fmt"
+
+type Point struct {
+	x,y int
+}
+
+func main() {
+	var m = map[int]Point {
+		1 : {1, 1},
+		2 : {2, 2},
+	}
+
+	m[1] = Point{3, 3} // 修改映射
+	p1 := m[1] // 获取值
+	fmt.Println(p1)
+
+	delete(m, 2) // 删除元素
+	elem, ok := m[2] // 判断是否存在
+	if ok == true {
+		fmt.Println(elem)
+	} else {
+		fmt.Println(ok)
+	}
+}
+```
+
+
+
+## 3.6 闭包
+
+Go 函数可以是一个闭包。闭包是一个函数值，它引用了其函数体之外的变量。该函数可以访问并赋予其引用的变量的值，换句话说，该函数被这些变量“绑定”在一起。
+
+例如，函数 `adder` 返回一个闭包。每个闭包都被绑定在其各自的 `sum` 变量上。
+
+
+
+``` go
+import "fmt"
+
+func add() func(x int) int {
+	sum := 0
+	return func(x int) int {
+		sum += x
+		return sum
+	}
+}
+
+func main() {
+	fun1, fun2 := add(), add()
+
+	for i := 0; i < 5; i++ {
+		fun1(i)
+		fmt.Println(fun2(i))
+	}
+	fmt.Println("fun2...")
+	for i := 0; i < 5; i++ {
+		fmt.Println(fun1(i))
+	}
+	fmt.Println("fun1...")
+}
+/*
+0
+1
+3
+6
+10
+fun2...
+10
+11
+13
+16
+20
+fun1...
+
+Process finished with exit code 0
+*/
+```
+
+
+
+### 3.6.1 斐波那契数列
+
+``` go
+import "fmt"
+
+func fib() func() int {
+	a := 0
+	b := 1
+	return func() int {
+		sum := a + b
+		a = b
+		b = sum
+		return sum
+	}
+}
+
+func main() {
+	f1 := fib()
+	for i := 1; i <= 10; i++ {
+		fmt.Println(f1())
+	}
+}
+```
+
+
+
+
+
+# 四、方法和接口
+
+
+
+## 4.1 方法
+
+Go 没有类。不过可以为结构体类型定义方法。
+
+方法就是一类带特殊的 **接收者** 参数的函数。
+
+方法接收者在它自己的参数列表内，位于 `func` 关键字和方法名之间。
+
+`dis`方法拥有一个名字为`p`，类型为`Point`的接收者
+
+``` go
+type Point struct {
+	x, y int
+}
+
+func (p Point) dis() int {
+	return p.x + p.y
+}
+
+func main() {
+	p1 := Point{1, 1}
+	println(p1.dis())
+}
+```
+
+
+
+方法只是个带接收者参数的函数。
+
+现在这个 `dis`的写法就是个正常的函数，功能并没有什么变化。
+
+也可以为非结构体类型声明方法。
+
+在此例中，我们看到了一个带 `Abs` 方法的数值类型 `MyFloat`。
+
+你只能为在同一包内定义的类型的接收者声明方法，而不能为其它包内定义的类型（包括 `int` 之类的内建类型）的接收者声明方法。
+
+> 就是接收者的类型定义和方法声明必须在同一包内；不能为内建类型声明方法。
+
+
+
+``` go
+type MyInt int
+
+func (i MyInt) add(a MyInt) MyInt {
+	return i + a
+}
+
+func main() {
+	i := MyInt(1)
+	j := MyInt(2)
+	println(i.add(j))
+}
+```
+
+
+
+
+
+## 4.2 指针接收者
+
+可以为指针接收者声明方法。
+
+这意味着对于某类型 `T`，接收者的类型可以用 `*T` 的文法。（此外，`T` 不能是像 `*int` 这样的指针。）
+
+例如，这里为 `*Point`定义了 `modify` 方法。
+
+指针接收者的方法可以修改接收者指向的值（就像 `modify`在这做的）。由于方法经常需要修改它的接收者，指针接收者比值接收者更常用。
+
+若使用值接收者，那么 `modify` 方法会对原始 `Point` 值的副本进行操作。（对于函数的其它参数也是如此。）`modify` 方法必须用指针接受者来更改 `main` 函数中声明的 `Point` 的值。
+
+
+
+``` go
+type Point struct {
+	x,y int
+}
+
+func (p *Point) modify() {
+	p.x ++
+	p.y ++
+}
+
+func main() {
+	point := Point{1, 1}
+	point.modify()
+	println(point.x)
+	println(point.y)
+}
+
+/*
+2
+2
+*/
+```
+
+不使用指针接收者
+
+``` go
+type Point struct {
+	x,y int
+}
+
+func (p Point) modify() {
+	p.x ++
+	p.y ++
+}
+
+func main() {
+	point := Point{1, 1}
+	point.modify()
+	println(point.x)
+	println(point.y)
+}
+/*
+1
+1
+*/
+```
+
+
+
+## 4.3. 方法与指针重定向
+
+比较以下方法和函数的区别
+
+``` go
+type Point struct {
+	x,y int
+}
+
+func (p Point) modify() {
+	p.x ++
+	p.y ++
+}
+
+func modify2(p *Point) {
+	p.x ++
+	p.y ++
+}
+```
+
+``` go
+point := Point{1, 1}
+p := &point
+modify2(point) // Error
+modify2(&point) //Correct
+point.modify() // Correct
+p.modify() // Correct
+```
+
+带指针参数的函数必须接受一个指针，而以指针为接收者的方法被调用时，接收者既能为值又能为指针：
+
+对于语句`point.modify()`即便`point`是个值，并非指针，带指针接收者的方法也能被直接调用。为方便起见，Go 会将语句 `point.modify()` 解释为 `(&point).modify()`。
+
+# 数据结构与算法
+
+## 排序
+
+### 快速排序
+
+``` go
+package main
+
+import (
+	"fmt"
+)
+
+
+var (
+	n int
+	nums []int
+)
+
+
+func main() {
+	fmt.Scanf("%d", &n)
+	nums = make([]int, n, n)
+
+	for i := 0; i < n; i++ {
+		fmt.Scanf("%d", &nums[i])
+	}
+	quick_sort(nums, 0, n - 1)
+	for i := 0; i < n; i++ {
+		fmt.Print(nums[i], " ")
+	}
+}
+
+func quick_sort(a []int, l, r int) {
+	if l >= r {
+		return
+	}
+	i := l - 1
+	j := r + 1
+	x := a[(l + r) >> 1]
+	for i < j {
+		for {
+			i++
+			if a[i] >= x {
+				break
+			}
+		}
+		for {
+			j--
+			if a[j] <= x {
+				break
+			}
+		}
+		if i < j {
+			a[i], a[j] = a[j], a[i]
+		}
+	}
+	quick_sort(a, l, j)
+	quick_sort(a, j + 1, r)
+}
+```
 

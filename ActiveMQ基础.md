@@ -70,7 +70,22 @@ ActiveMQ的端口号是61616，提供JMS服务
 
 ![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/ActiveMQ/%E9%80%BB%E8%BE%91%E5%9B%BE.png)
 
-## 
+
+
+引入Macen坐标
+
+``` xml
+<!-- https://mvnrepository.com/artifact/org.apache.activemq/activemq-all -->
+<dependency>
+    <groupId>org.apache.activemq</groupId>
+    <artifactId>activemq-all</artifactId>
+    <version>5.16.0</version>
+</dependency>
+```
+
+
+
+
 
 ### 目的地为队列
 
@@ -385,3 +400,54 @@ JavaEE是一套使用Java进行企业级应用开发的一致遵循的13个核�
 Java消息服务指的是两个应用程序之间进行异步通信的API，它为标准消息协议和消息服务提供了一组通用接口，包括创建、发送、读取消息等，用于支持Java应用程序开发。在JavaEE中，当两个应用程序使用JMS进行通信时，它们之间并不是直接相连的，而是通过一个共同的消息收发服务组件关联起来以达到解耦、异步、削峰的效果。
 
 ![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/ActiveMQ/JMS.png)
+
+
+
+## JMS四大元素
+
+1. JMS provider：实现JMS接口和规范的消息中间件，也就是MQ服务器
+2. JMS producer：消息生产者，创建和发送JMS消息的客户端应用
+3. JMS consumer：消息消费者，接受和处理JMS消息的客户端应用
+4. JMS message
+
+
+
+## JMS message
+
+
+
+### 消息头
+
+1. setJMSDestination：设置某条消息指定的目的地
+2. setJMSDeliveryMode：设置持久模式和非持久模式
+    * 一条持久性的消息：应该被传送仅仅一次，这意味着如果JMS提供者出现故障，该消息并不会丢失，它会在服务器恢复之后再次传递
+    * 一条非持久的消息：最多会传送一次，这意味着服务器出现故障，该消息将永久丢失
+3. setJMSExpiration：设置消息的过期时间
+    * 消息过期时间，等于Destination的send方法中的timeToLive值加上发送时刻的GMT时间值。如果timeToLive值等于0，则JMSExpiratioin被设为0，表示消息永不过期。如果发送后，在消息过期时间之后，消息还没有被发送到目的地，则该消息清除
+4. setJMSPriority：设置消息的优先级
+    * 消息优先级，从0-9十个级别，0-4是普通消息，5-9是加急消息。
+    * JMS不要求MQ严格按照这十个优先级发送消息，但必须保证加急消息要先于普通消息到达。默认是4级
+5. setJMSMessageID：设置消息的ID
+    * 唯一识别每个消息的标识由MQ产生
+
+
+
+### 消息体
+
+封装具体的消息数据，发送和接受的消息体类型必须一致对应
+
+五种消息体格式：
+
+1. TextMessage：一个普通字符串消息，包含一个String
+2. MapMessage：一个Map类型的消息，key为String类型，而值为Java的基本类型
+3. BytesMessage：二进制数组消息，包含一个byte[]
+4. StreamMessage：Java数据流消息，用标准操作来顺序的填充和读取
+5. ObjectMessage：对象消息，包含一个可序列化的Java对象
+
+### 消息属性
+
+如果需要除消息头字段以外的值，可以使用消息属性。可以识别/去重/重点标注等操作。
+
+他们是以属性名和属性值对的形式制定的。可以将属性是为消息头得扩展，属性指定一些消息头没有包括的附加信息，比如可以在属性里指定消息选择器。
+
+消息的属性就像可以分配给一条消息的附加消息头一样。它们允许开发者添加有关消息的不透明附加信息。还可以用于暴露消息选择器在消息过滤时使用的数据。

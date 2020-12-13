@@ -451,3 +451,445 @@ Java消息服务指的是两个应用程序之间进行异步通信的API，它�
 他们是以属性名和属性值对的形式制定的。可以将属性是为消息头得扩展，属性指定一些消息头没有包括的附加信息，比如可以在属性里指定消息选择器。
 
 消息的属性就像可以分配给一条消息的附加消息头一样。它们允许开发者添加有关消息的不透明附加信息。还可以用于暴露消息选择器在消息过滤时使用的数据。
+
+
+## JMS的可靠性
+
+
+
+### 持久性
+
+
+
+#### 队列
+
+
+
+参数设置说明：
+
+* 非持久：`messageProducer.setDeliveryMode(DeliveryMode.NON_PERSISTENT);`当服务器宕机，消息不存在
+* 持久化：`messageProducer.setDeliveryMode(DeliveryMode.PERSISTENT);`当服务器宕机，消息依然存在（默认持久化）
+    * 这是队列的默认传送模式，此模式保证这些消息只被传送一次和成功使用一次。对于这些消息，可靠性是优先考虑的因素。
+    * 可靠性的另一个重要方面是确保持久性消息传送至目标后，消息服务在向消费者传送它们之前不会丢失这些消息
+
+
+
+#### 主题
+
+与队列持久化不同，需要先将消息的生产者设置为持久化，再连接到MQ
+
+
+
+发布订阅
+
+``` java
+public class ActiveProvider {
+    public static final String ACTIVEMQ_URL = "tcp://192.168.3.100:61616";
+    public static final String TOPIC_NAME = "topic01";
+    public static void main(String[] args) throws JMSException {
+        ActiveMQConnectionFactory factory = new ActiveMQConnectionFactory(ACTIVEMQ_URL);
+        Connection connection = factory.createConnection();
+        Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+        Destination topic = session.createTopic(TOPIC_NAME);
+        MessageProducer producer = session.createProducer(topic);
+        producer.setDeliveryMode(DeliveryMode.PERSISTENT);
+
+        connection.start();
+        for (int i = 1; i <= 3; i++) {
+            TextMessage textMessage = session.createTextMessage("msg -- " + i);
+            producer.send(textMessage);
+        }
+        producer.close();
+        session.close();
+        connection.close();
+    }
+}
+```
+
+接收订阅
+
+``` java
+public class ActiveConsumer {
+    public static final String ACTIVEMQ_URL = "tcp://192.168.3.100:61616";
+    public static final String TOPIC_NAME = "topic01";
+    public static void main(String[] args) throws JMSException, IOException {
+        System.out.println("消费者2号");
+        ActiveMQConnectionFactory factory = new ActiveMQConnectionFactory(ACTIVEMQ_URL);
+        Connection connection = factory.createConnection();
+        connection.setClientID("2"); // 设置客户端ID
+        Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+        Destination topic = session.createTopic(TOPIC_NAME);
+
+        // 设置持久化订阅主题
+        TopicSubscriber topicSubscriber = session.createDurableSubscriber((Topic) topic, "remark");
+
+        connection.start();
+
+        // 等待订阅消息
+        Message msg = topicSubscriber.receive();
+        while (null != msg) {
+            TextMessage textMessage = (TextMessage) msg;
+            System.out.println("收到的持久化topic" + textMessage.getText());
+            // 等候5秒，如果还没有接收到新的订阅，就退出
+            msg = topicSubscriber.receive(5000L);
+        }
+
+        session.close();
+        connection.close();
+    }
+}
+```
+
+**注意**：一定要先运行一次消费者，等于向MQ注册，类似我订阅了这个主题。然后再运行生产者发送消息，此时无论消费者是否在线，都会接收到，不在线的话，下次连接的时候，会把没有收过的消息都接收下来。
+
+
+
+### 事务
+
+事物偏向于生产者，事物的概念类似于数据库中的事物
+
+1. 不开启事物
+    * 只要执行send，就进入到队列中
+    * 关闭事物，那第二个签收参数的设置需要有效
+2. 开启事物
+    * 先执行send再执行commit，消息才被真正的提交到队列中
+    * 消息需要批量发送，需要缓冲区处理
+
+生产者代码
+
+``` java
+public class ActiveProvider {
+    public static final String ACTIVEMQ_URL = "tcp://192.168.3.100:61616";
+    public static final String QUEUE_NAME = "queue01";
+    public static void main(String[] args) throws JMSException {
+        ActiveMQConnectionFactory factory = new ActiveMQConnectionFactory(ACTIVEMQ_URL);
+
+        Connection connection = factory.createConnection();
+        connection.start();
+		
+        // 设置事物为开启
+        Session session = connection.createSession(true, Session.AUTO_ACKNOWLEDGE);
+        Queue queue = session.createQueue(QUEUE_NAME);
+        MessageProducer producer = session.createProducer(queue);
+        for (int i = 1; i <= 3; i++) {
+            TextMessage textMessage = session.createTextMessage("msg -- " + i);
+            producer.send(textMessage);
+        }
+        producer.close();
+        // 在seesion关闭之前，提交事务
+        session.commit();
+        session.close();
+        connection.close();
+    }
+}
+```
+
+**注意**：消费者如果开启了事务，但是没有提交，会导致重复消费消息。
+
+
+
+### 签收
+
+非事务的情况下:
+
+1. 自动签收（默认）：`Session.AUTO_ACKNOWLEDGE`
+2. 手动签收：`Session.CLIENT_ACKNOWLEDGE`客户端调用acknowledge方法手动签收
+3. 允许重复消息：`Session.DUPS_OK_ACKNOWLEDGE`
+
+
+
+事务开启的情况下：
+
+1. 生产事务开启，只有commit后才能将全部消息变为已消费
+2. 如果没有commit提交，只使用了acknowledge方法，消息不会变为已消费
+
+
+
+* 事务与签收的关系
+    * 在事务性会话中，当一个事务被成功提交则消息被自动签收。如果事务回滚，则消息会被再次传送
+    * 非事务性会话中，消息何时被确认取决于创建会话时的应答模式
+
+
+
+## JMS的点对点总结
+
+点对点模型是基于队列的，生产者发送消息到队列，消费者从队列接收消息，队列的存在使得消息的异步传输成为可能。
+
+1. 如果在Session关闭时有部分消息已经被收到但是还没有被签收，当消费者下次连接到相同队列的时候，这些消息会被再次签收
+2. 队列可以长久的保存消息知道消费者收到消息。消费者不需要因为担心消息会丢失而时刻和队列保持激活的连接状态，充分体现了异步传输模式的优势
+
+
+
+# Broker
+
+相当于一个ActiveMQ服务器实例，用代码的形式启动ActiveMQ，将MQ嵌入到Java代码中，以便随时启动，节省资源，保证了可靠性。
+
+根据不同的配置文件来启动：
+
+```
+./activemq start xbean:file:/安装路径/apache-activemq-5.16.0/conf/activemq.xml
+```
+
+
+
+## 嵌入式
+
+1. 引入jackson
+
+``` xml
+<!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-databind -->
+<dependency>
+    <groupId>com.fasterxml.jackson.core</groupId>
+    <artifactId>jackson-databind</artifactId>
+    <version>2.12.0</version>
+</dependency>
+```
+
+2. 启动内嵌服务
+
+``` java
+public class ActiveMQBroker {
+    public static void main(String[] args) throws Exception {
+        BrokerService brokerService = new BrokerService();
+        brokerService.setUseJmx(true);
+        brokerService.addConnector("tcp://localhost:61616");
+        brokerService.start();
+    }
+}
+```
+
+
+
+# SpringBoot整合ActiveMQ
+
+
+
+## 配置文件
+
+```yaml
+server:
+  port: 8888
+
+spring:
+  activemq:
+    broker-url: tcp://192.168.3.100:61616
+    user: admin
+    password: admin
+  jms:
+    pub-sub-domain: false  # false为队列， true为主题
+
+# 自定义队列名称
+myqueue: boot-activemq-queue
+```
+
+
+
+## 配置主题
+
+```java
+@Component
+@EnableJms // 开启支持消息服务
+public class ConfigBean {
+    @Value("${myqueue}") // 从配置文件中获取值
+    private String queueName;
+
+    @Bean
+    public Queue queue() {
+        return new ActiveMQQueue(queueName); // 创建队列目的地，加入到IOC容器中
+    }
+}
+```
+
+
+
+## 测试类
+
+```java
+@SpringBootTest
+class BootActivemqApplicationTests {
+
+    @Autowired
+    private QueueProducer queueProducer;
+
+    @Test
+    void contextLoads() throws Exception {
+        queueProducer.produceMessage();
+    }
+
+}
+```
+
+
+
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/ActiveMQ/%E6%95%B4%E5%90%88Springboot.png)
+
+
+
+## 间隔定投
+
+**要求：**每隔三秒钟往MQ推送消息
+
+使用注解`@Scheduled`开启定时投递功能，`fixedDelay`设置间隔时间。主启动类添加`@EnableScheduling`注解开启支持`@Scheduled`功能
+
+
+
+## 消费者
+
+``` java
+// 配置文件同提供者，仅端口不同
+
+@Component
+public class ActiveMQConsumer {
+
+    @JmsListener(destination = "${myqueue}") // 开启监听功能
+    public void receive(TextMessage textMessage) throws Exception {
+        System.out.println(textMessage.getText());
+    }
+}
+```
+
+## Topic生产者
+
+类似与Queue的生产者
+
+``` java
+@Component
+@EnableJms
+public class ConfigBean {
+    @Value("${mytopic}")
+    private String topicName;
+
+    @Bean
+    public Topic topic() {
+        return new ActiveMQTopic(topicName);
+    }
+}
+```
+
+``` java
+@Service
+public class TopicProducer {
+    @Autowired
+    private JmsMessagingTemplate jmsMessagingTemplate;
+
+    @Autowired
+    private Topic topic;
+
+    public void producer() {
+        jmsMessagingTemplate.convertAndSend(topic, "boot-activemq-topic");
+    }
+}
+```
+
+![springboot整合]()
+
+消费者类似与队列的写法
+
+# 传输协议
+[官网介绍](http://activemq.apache.org/configuring-version-5-transports)
+在生产环境下，很少使用`TCP`协议，而更多的是使用`NIO`协议。
+官网原话：
+```
+Same as the TCP transport, except that the New I/O (NIO) package is used, which may provide better performance. The Java NIO package should not be confused with IBM’s AIO4J package.
+
+To switch from TCP to NIO, simply change the scheme portion of the URI. Here’s an example as defined within a broker’s XML configuration file.
+
+<broker>
+  ...
+  <transportConnectors>
+    <transportConnector name="nio" uri="nio://0.0.0.0:61616"/>  
+  </<transportConnectors>
+  ...
+</broker>
+Trying to use nio transport url on the client side will instantiate the regular TCP transport. For more information see the NIO Transport Reference
+```
+
+## 简介
+ActiveMQ支持的client-broker通讯协议有：TCP、NIO、UDP、SSL、Http(s)、VM
+其中配置`Transport Connector`的文件在activeMQ安装目录的`conf/activemq.xml`中的`<transportConnectors>`标签之内。
+在activeMQ中，默认的消息协议就是`openwire`
+
+## Transmission Control Protocol
+1. 这是默认的Broker配置，TCP的Client监听端口61616
+2. 在网络传输数据前，必须要序列化数据，消息是通过一个叫wire protocol的来序列化成字节流。默认情况下ActiveMQ把wire protocol叫做openwire，它的目的是促使网络上的效率和数据快速交互
+3. TCP连接的URI形式如：`tcp://hostname:port?key=value&key=value`，后面的参数是可选择的
+4. TCP传输的优点：
+   1. TCP协议传输可靠性高，稳定性强
+   2. 高效性：字节流方式传递，效率很高
+   3. 有效性、可用性：应用广泛，支持任何平台
+
+[官方解释](http://activemq.apache.org/tcp-transport-reference)
+
+## New I/O API Protocol
+1. NIO协议和TCP协议类似，但NIO更侧重于底层的访问操作。它允许开发人员对同一资源可有更多的client调用和服务端有更多的负载
+2. 适合使用NIO协议的场景：
+   1. 可能有大量的client去连接到broker上，一般情况下，大量的client去连接broker是被操作系统的线程所限制的。因此NIO的实现比TCP需要更少的线程去运行，所以建议使用NIO协议
+   2. 可能对于Broker有一个很迟钝的网络传输，NIO比TCP提供更好的性能
+3. NIO连接的URI形式：`nio://hostname:port?key=value`
+[官方解释](http://activemq.apache.org/nio-transport-reference)
+
+## AMQP
+Advanced Message Queuing Protocol，一个提供统一消息服务的应用层标准高级消息队列协议，是应用层协议的一个开放标准，为面向消息的中间件设计。基于此协议的客户端与消息中间件可传递消息，并不受客户端/中间件不同产品，不同开发语言等条件的限制
+[官方解释](http://activemq.apache.org/amqp)
+
+## stomp
+Streaming Text Orientated Message Protocol，是流文本定向消息协议，是一种为MOM（Message Oriented Middleware，面向消息的中间件）设计的简单文本协议。
+[官方解释](http://activemq.apache.org/stomp)
+
+## Secure Sockets Layer Protocol
+[官方解释](http://activemq.apache.org/ssl-transport-reference)
+
+## mqtt
+Message Queuing Telemetry Transport，消息队列遥测传输，是IBM开发的一个即时通讯协议，有可能成为物联网的重要组成部分。该协议支持所有平台，几乎可以把所有物联网物品和外部连接起来，被用来当做传感器和致动器（比如通过Twitter让房屋联网）的通信协议
+
+## ws
+
+[官方解释](http://activemq.apache.org/websockets)
+
+
+
+## 小结
+
+| 协议 | 描述                                                         |
+| ---- | ------------------------------------------------------------ |
+| TCP  | 默认的协议，性能相对较好                                     |
+| NIO  | 基于TCP协议之上的，进行了扩展和优化，具有更好的扩展性        |
+| UDP  | 性能比TCP更好，但是不具有可靠性                              |
+| SSL  | 安全链接                                                     |
+| HTTP | 基于HTTP或者HTTPS                                            |
+| VM   | VM本身不是协议，当客户端和代理在同一个Java虚拟机中运行时，他们之间需要通信，但不想占用网络通道，而是直接通信，可以使用该方式 |
+
+
+
+
+
+## NIO传输协议
+
+1. 修改配置文件
+
+    修改前先备份
+
+    ``` xml
+    <transportConnectors>
+        <transportConnector name="nio" uri="nio://0.0.0.0:61618?trace=true"/>  
+    </<transportConnectors>
+    ```
+
+    如果不特别指定ActiveMQ的网络监听端口，那么这些端口都将使用BIO网络IO模型。所以为了提高单节点的网络吞吐性能，需要明确的指定Active的网络IO模型。如：URI格式头以`nio`开头，表示这个端口使用以TCP协议为基础的NIO网络的IO模型。
+
+2. URI格式头以`nio`开头，表示这个端口使用以TCP协议为基础的NIO网络IO模型，但是这样设置只能使这个端口支持openwire协议。
+
+    使用auto关键字，使用`+`来为端口设置多种特性
+
+    修改配置文件
+
+    ``` xml
+    <transportConnector name="auto+nio" uri="auto+nio://0.0.0.0:61608?maximumConnections=1000&wireFormat.maxFrameSize=104857600&org.apache.activemq.transport.nio.SelectorManager.corePoolSize=20&org.apache.activemq.transport.nio.SelectorManager.maximumPoolSize=50" />
+    ```
+
+    
+
+
+
+# 消息持久化
+

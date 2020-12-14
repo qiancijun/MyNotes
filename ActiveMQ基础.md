@@ -893,3 +893,267 @@ Message Queuing Telemetry Transport，消息队列遥测传输，是IBM开发的
 
 # 消息持久化
 
+为了避免意外宕机以后丢失信息，需要做到重启后可以恢复消息队列，消息系统一般都会采用持久化机制
+
+ActiveMQ的消息持久化机制又JDBC，AMQ，KahaDB和LevelDB，无论使用哪种持久化方式，消息的存储逻辑都是一致的。在发送者将消息发送出去后，消息中心首先将消息存储到本地数据文件、内存数据库或者远程数据库等再试图将消息发送给接收者，成功则将消息从存储中删除，失败则继续尝试发送。
+
+消息中心启动以后首先要检查指定的存储位置，如果有未成功发送的消息，则需要把消息发送出去
+
+
+
+[官方解释](http://activemq.apache.org/persistence.html)
+
+
+
+## AMQ Message Store
+
+基于文件存储的方式，是以前默认的存储方式，现在已经舍弃。
+
+AMQ是一种文件存储形式，它具有写入速度快和容易恢复的特点。消息存储在一个个文件中，文件的默认大小为32M，当一个存储文件中的消息已经全部被消费，那么这个文件将被标识为可删除，在下一个清除阶段，这个文件被删除。AMQ适用于ActiveMQ5.3之前的版本
+
+
+
+## KahaDB
+
+基于日志文件，从ActiveMQ5.4之后开始默认的持久化插件
+
+在`activemq.xml`配置文件中的显示
+
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/ActiveMQ/KahaDB-%E9%85%8D%E7%BD%AE%E6%96%87%E4%BB%B6.png)
+
+KahaDB是目前默认的存储方式，可用于任何场景，提高了性能和恢复能力。
+
+消息存储使用一个事务日志和仅仅用一个索引文件来存储它所有的地址。
+
+KahaDB是一个专门针对消息持久化的解决方案，它对典型的消息使用模式进行了优化。数据被迫加到data logs中。当不再需要log文件中的数据的时候，log文件会被丢弃。
+
+
+
+KahaDB在消息保存目录中只有4类文件和一个lock，跟ActiveMQ的其他几种文件存储引擎相比非常简洁
+
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/ActiveMQ/KahaDB-%E7%9B%AE%E5%BD%95%E7%BB%93%E6%9E%84.png)
+
+* 目录结构：
+    * db-<number>.log
+    * db.data
+    * db.redo
+    * db.free（由于数据被清空，所以该文件被删除）
+    * lock
+
+
+
+1. db-<number>.log
+
+    KahaDB存储消息到预定义大小的数据记录文件中，文件命名为db-<number>.log。当数据文件已满时，一个新的文件会随之创建，number数值也会随之递增，它随着消息数量的增多，如每32M一个文件，文件名按照数字进行编号。当不再有引用到数据文件中的任何消息时，文件会被删除或归档。
+
+2. db.data
+
+    该文件包含了持久化的B-Tree索引，索引了消息数据记录中的消息，它是消息的索引文件，本质上是B树，使用B树作为索引指向db-<number>.log里面存储的消息。
+
+3. db.free
+
+    指明db.data文件里，哪些页面是空闲的，文件具体内容是所有空闲页的ID
+
+4. db.redo
+
+    用来进行消息恢复，如果KahaDB消息存储在强制退出后启动，用于恢复BTree索引
+
+5. lock
+
+    文件锁，表示当前获得KahaDB读写权限的broker。
+
+## JDBC
+
+1. 在`activemq/lib`目录下引入JDBC驱动包，和对应要使用的数据库连接池
+
+2. 修改`activemq.xml`的默认持久化规则
+
+    ``` xml
+    <persistenceAdapter> 
+      <jdbcPersistenceAdapter dataSource="#my-ds"/> 
+    </persistenceAdapter>
+    ```
+
+    dataSource指定将要引用的持久化数据库的bean名称
+
+    createTableOnStartup是否在启动的时候创建数据表，默认值是true
+
+3. 配置bean
+
+    ``` xml
+    <bean id="mysql-ds" class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close">
+      <property name="driverClassName" value="com.mysql.jdbc.Driver"/>
+      <property name="url" value="jdbc:mysql://localhost/activemq?relaxAutoCommit=true"/>
+      <property name="username" value="activemq"/>
+      <property name="password" value="activemq"/>
+      <property name="poolPreparedStatements" value="true"/>
+    </bean>
+    ```
+
+4. 建一个`activemq`的库
+
+5. 三张表的说明
+
+    * ACTIVEMQ_MSGS
+        * ID：自增的数据库主键
+        * CONTAINER：消息的目的地
+        * MSGID_PROD：消息发送者的主键
+        * MSG_SEQ：发送消息的顺序，MSGID_PROD+MSG_SEQ可以组成JMS的MessageID
+        * EXPIRATION：消息的过期时间，存储的是从1970-01-01到现在的毫秒数
+        * MSG：消息本体的Java序列化对象的二进制数据
+        * PRIORITY：优先级
+    * ACTIVEMQ_ACKS：用于存储订阅关系，如果是持久化Topic，订阅者和服务器的订阅关系在这个表存
+        * CONTAINER：消息的目的地
+        * SUB_DEST：如果是使用Static集群，这个字段会有集群其他系统的信息
+        * CLIENT_ID：每个订阅者都必须有一个唯一的客户端ID用以区分
+        * SUB_NAME：订阅者名称
+        * SELECTOR：选择器，可以选择只消费满足条件的消息，条件可以用自定义属性实现，可支持多属性AND和OR操作
+        * LAST_ACKED_ID：记录消费过的消息的ID
+    * ACTIVEMQ_LOCK：在集群环境下才有用，只有一个Broker可以获得消息，称为Master Broker，其他的只能作为备份等待Master Broker不可用才能成为下一个Master Broker。
+
+6. 代码测试
+
+    生产者代码
+
+    ``` java
+    public class ActiveProvider {
+        public static final String ACTIVEMQ_URL = "tcp://192.168.74.100:61616";
+        public static final String QUEUE_NAME = "jdbc01";
+    
+        public static void main(String[] args) throws JMSException {
+            ActiveMQConnectionFactory factory = new ActiveMQConnectionFactory(ACTIVEMQ_URL);
+    
+            Connection connection = factory.createConnection();
+            connection.start();
+    
+            Session session = connection.createSession(true, Session.CLIENT_ACKNOWLEDGE);
+            Queue queue = session.createQueue(QUEUE_NAME);
+            MessageProducer producer = session.createProducer(queue);
+            producer.setDeliveryMode(DeliveryMode.PERSISTENT); // 开启持久化
+            for (int i = 1; i <= 3; i++) {
+                TextMessage textMessage = session.createTextMessage("msg -- " + i);
+                producer.send(textMessage);
+            }
+            producer.close();
+            session.commit();
+            session.close();
+            connection.close();
+        }
+    }
+    ```
+
+    代码运行成功后
+
+    ![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/ActiveMQ/%E6%8C%81%E4%B9%85%E5%8C%96JDBC-%E4%BB%A3%E7%A0%81%E6%B5%8B%E8%AF%95%20%E6%8E%A7%E5%88%B6%E5%8F%B0%E7%AB%AF.png)
+
+    ![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/ActiveMQ/%E6%8C%81%E4%B9%85%E5%8C%96JDBC-%E4%BB%A3%E7%A0%81%E6%B5%8B%E8%AF%95%20%E6%95%B0%E6%8D%AE%E5%BA%93%E7%AB%AF.png)
+
+    运行消费者代码后
+
+    ``` java
+    public class ActiveConsumer {
+        public static final String ACTIVEMQ_URL = "tcp://192.168.74.100:61616";
+        public static final String QUEUE_NAME = "jdbc01";
+    
+        public static void main(String[] args) throws JMSException {
+            // 1. 获取连接工厂
+            ActiveMQConnectionFactory factory = new ActiveMQConnectionFactory(ACTIVEMQ_URL);
+            // 2. 获取连接
+            Connection connection = factory.createConnection();
+            connection.start();
+            // 3. 创建会话session，第一个参数为事物，第二个参数为签收
+            Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+            // 4. 创建目的地
+            Queue queue = session.createQueue(QUEUE_NAME);
+            // 5. 获取消费者
+            MessageConsumer consumer = session.createConsumer(queue);
+            while (true) {
+                // 6. 获取消息，注意要类型统一
+                TextMessage message = (TextMessage) consumer.receive();
+                if (null != message) {
+                    System.out.println("msg : " + message.getText());
+                } else {
+                    break;
+                }
+            }
+            consumer.close();
+            session.close();
+            connection.close();
+        }
+    }
+    ```
+
+    ![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/ActiveMQ/%E6%8C%81%E4%B9%85%E5%8C%96JDBC-%E4%BB%A3%E7%A0%81%E6%B5%8B%E8%AF%95%20%E6%8E%A7%E5%88%B6%E5%8F%B0%E7%AB%AF2.png)
+
+    ![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/ActiveMQ/%E6%8C%81%E4%B9%85%E5%8C%96JDBC-%E4%BB%A3%E7%A0%81%E6%B5%8B%E8%AF%95%20%E6%95%B0%E6%8D%AE%E5%BA%93%E7%AB%AF2.png)
+
+    在点对点模型中，当`DeliverMode`设置为非持久化时，消息被保存在内存中，设置为持久化时，消息保存在broker的相应的文件或者数据库中
+
+    点对点类型中消息一旦被Consumer消费就从broker中删除
+
+### 总结
+
+1. Queue
+
+    在没有消费者消费的情况下，会将消息保存到activemq_msgs表中，只要有任意一个消费者已经消费过了，消费之后这些消息将会立即被删除
+
+2. 如果是topic
+
+    一般是先启动消费订阅，人后再生产的情况下，会将消息保存到activemq_acks
+
+3. 数据库jar包
+
+    需要使用的相关jar文件放置到ActiveMQ安装路径下的lib目录
+
+4. createTablesOnStartup属性
+
+5. java.lang.IllegalStateException:BeanFactory not initialized or alread closed
+
+    操作系统的机器名中有"_"符号，更改机器名并且重启
+
+
+
+> 如果远程机连接不是主机的Mysql，在Mysql上设置权限
+>
+> use mysql
+>
+> update user set host = '%' where user = 'root';
+>
+> FLUSH PRIVILEGES;
+
+
+
+![](https://qiancijun-images.oss-cn-beijing.aliyuncs.com/%E5%8D%9A%E5%AE%A2%E5%9B%BE%E7%89%87/JavaEE/ActiveMQ/%E6%8C%81%E4%B9%85%E5%8C%96JDBC.png)
+
+
+
+## LevelDB
+
+ActiveMQ5.8之后引进，它和KahaDB非常类似，也是基于文件的本地数据库存储形式，但是它提供比KahaDB更快的持久性。
+
+但是它不使用自定义B-Tree实现索引预写日志，而是使用基于LevelDB的索引。
+
+
+
+## JDBC Message store with ActiveMQ Journal
+
+> For long term persistence we recommend using JDBC coupled with our high performance journal. You can use just JDBC if you wish but its quite slow.
+
+这种方式克服了JDBC的不足，每次消息来都需要去写库和读库。ActiveMQ Journal使用高速缓存写入技术，大大提高了性能。当消费者的消费速度能够及时跟上生产者的生产速度时，Journal文件能够大大减少需要写入到DB中的消息。
+
+
+
+修改配置文件
+
+``` xml
+ <persistenceFactory>
+      <journalPersistenceAdapterFactory journalLogFiles="5"
+                                        dataDirectory="${basedir}/target"
+                                        useJournal="true"
+                                        useQuickJorunal="true"
+                                        dataSource="#mysql-ds"/> 
+      <!-- To use a different dataSource, use the following syntax : --> 
+      <!-- <journalPersistenceAdapterFactory journalLogFiles="5" dataDirectory="${basedir}/activemq-data" dataSource="#mysql-ds"/> --> 
+    </persistenceFactory> 
+```
+

@@ -1640,3 +1640,24 @@ public String paymentCircuitBreaker_fallback(@PathVariable("id") Long id) {
 ## 服务监控
 
 除了隔离依赖服务的调用以外，Hystrix还提供了==准实时的调用监控==，Hystrix会持续的记录所有通过Hystrix发起的请求的执行信息，并以统计报表和图形的形式展示给用户，包括每秒执行多少请求多少成功，多少失败等。Netflix通过hystrix-metrics-event-stream项目实现了对以上指标的监控。Spring Cloud也提供了Hystrix Dashboard的整合，对监控内容转化成可视化界面。
+
+
+
+
+
+# GateWay
+
+Gateway是在Spring生态系统之上构建的API网关服务，基于Spring 5，Spring Boot 2 和 Project Reactor 等技术。Gateway旨在提供一种简单而有效的方式来对API进行路由，以及提供一些强大的过滤器功能，例如：熔断、限流、重试等
+
+
+
+Spring Cloud Gateway具有如下特性:
+
+1. 基于Spring Framework 5，Project Reactor 和Spring Boot 2.0 进行构建
+2. 动态路由：能够匹配任何请求属性
+3. 可以对路由指定Predicate（断言）和Filter（过滤器）
+4. 集成Hystrix的断路器功能
+5. 集成Spring Cloud 服务发现功能
+6. 易于编写的Predicate（断言）和Filter（过滤器）
+7. 请求限流功能
+8. 支持路径重写；

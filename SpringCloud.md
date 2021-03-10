@@ -1661,3 +1661,155 @@ Spring Cloud Gateway具有如下特性:
 6. 易于编写的Predicate（断言）和Filter（过滤器）
 7. 请求限流功能
 8. 支持路径重写；
+
+SpringCloud Gateway 作为 Spring Cloud 生态系统中的网关，目标是代替Zuul，在Spring Cloud 2.0 以上版本中，没有对新版本的 Zuul 2.0 以上最新高性能版本进行集成，仍然还是使用的 Zuul 1.x 非 Reactor 模式的老版本。而为了提升网关的性能，SpringCloud Gateway 是基于 WebFlux 框架实现的，而 WebFlux 框架底层则使用了高性能的 Reactor 模式通信架构 Netty
+
+## 与Zuul区别
+1. Zuul 1.x 是一个基于阻塞 I/O 的 API Gateway
+2. Zuul 1.x 基于 Servlet 2.5 使用阻塞架构，它不支持任何长连接，Zuul 的设计模式和 Nginx 较像，每次 I/O 操作都是从工作线程中选择一个执行，请求线程被阻塞到工作线程完成，但是差别是 Nginx 用 C++ 实现，Zuul 用 Java 实现，而 JVM 本身会有第一次加载较慢的情况，使得 Zuul 的性能相对较差
+3. Zuul 2.x 理念更先进，想基于 Netty 非阻塞和支持长连接，但 SpringCloud 目前还没有整合。Zuul 2.x 的性能较 Zuul 1.x 有较大提升。在性能方面，根据官方提供的基准测试，Spring Cloud Gateway 的 RPS（每秒请求数）是 Zuul 的1.6倍
+4. Spring Cloud Gateway 建立在 Spring Framework 5、Project Reactor 和 Spring Boot 2 之上，使用非阻塞 API
+5. Spring Cloud Gateway 还支持 WebSocket，并且与 Spring 紧密集成拥有更好的开发体验
+
+
+## 工作流程
+
+* Router（路由）
+    路由是构建网关的基本模块，它由ID，目标URI，一系列的断言和过滤器组成，如果断言为 true 则匹配该路由
+
+* Predicate（断言）
+    参考的是 Java8 的 java.util.function.Predicate，开发人员可以匹配 HTTP 请求中的所有内容（例如请求头或请求参数），如果请求与断言相匹配则进行路由
+
+* Filter（过滤）
+    Spring 框架中 GatewayFilter 的实例，使用过滤器，可以在请求被路由前或者之后对请求进行修改。
+
+web 请求通过一些匹配条件，定位到真正的服务节点。并在这个转发过程的前后，进行一些精细化控制。predicate 就是匹配条件，而 filter 就可以理解为一个无所不能的拦截器。有了这两个元素，再加上目标 uri，就可以实现一个具体的路由了。
+
+核心逻辑：路由转发 + 执行过滤链
+
+## 构建
+
+1. POM
+    ``` xml
+   <dependencies>
+
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-devtools</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.qiancijun</groupId>
+            <artifactId>cloud-api-commons</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+   ```
+
+2. YML，使用YML进行路由配置
+
+    ``` yml
+    server:
+      port: 9527
+    spring:
+      application:
+        name: cloud-gateway
+      cloud:
+        gateway:
+          routes:
+            - id: payment_routh # payment_router 路由的Id，没有固定规则但要求唯一，建议配合服务名
+              uri: http://localhost:8081 # 匹配后提供服务的路由地址
+              predicates:
+                - Path=/payment/get/** # 断言，路径相匹配的进行路由
+            - id: payment_routh2
+              uri: http://localhost:8081
+              predicates:
+                - Path=/payment/lb/** # 断言，路径相匹配的进行路由
+    
+    eureka:
+      instance:
+        hostname: cloud-gateway-service
+      client:
+        service-url:
+          register-with-eureka: true
+          fetch-register: true
+          defaultZone: http://eureka7001.com:7001/eureka
+    ```
+
+3. 主启动类
+    ``` java
+    @SpringBootApplication
+    @EnableEurekaClient
+    public class Gateway9527MainApplication {
+        public static void main(String[] args) {
+            SpringApplication.run(Gateway9527MainApplication.class, args);
+        }
+    }
+    ```
+
+
+
+使用编码进行路由配置
+
+``` java
+@Configuration
+public class GatewayConfig {
+    @Bean
+    public RouteLocator myRouteLocator(RouteLocatorBuilder builder) {
+        RouteLocatorBuilder.Builder routes = builder.routes();
+        routes.route("path_route_page", r -> r.path("/MainPage").uri("http://www.cheryl-chun.cn/#/MainPage")).build();
+        return routes.build();
+    }
+}
+```
+
+## 动态路由
+默认情况下 Gateway 会根据注册中心注册的服务列表，以注册中心上微服务名为路径创建动态路由进行转发，从而实现动态路由的功能。
+
+改写YML文件
+``` yml
+spring:
+  application:
+    name: cloud-gateway
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true # 开启从注册中心动态创建路由的功能，利用微服务名进行路由
+      routes:
+        - id: payment_routh # payment_router 路由的Id，没有固定规则但要求唯一，建议配合服务名
+          uri: lb://cloud-payment-service # 匹配后提供服务的路由地址
+          predicates:
+            - Path=/payment/get/** # 断言，路径相匹配的进行路由
+        - id: payment_routh2
+          uri: lb://cloud-payment-service
+          predicates:
+            - Path=/payment/lb/** # 断言，路径相匹配的进行路由
+```

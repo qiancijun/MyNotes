@@ -1,0 +1,1 @@
+firewall-cmd --zone=public --add-port=3306/tcp --permanent

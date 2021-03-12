@@ -1646,6 +1646,7 @@ public String paymentCircuitBreaker_fallback(@PathVariable("id") Long id) {
 
 
 # GateWay
+[Spring Cloud Gateway](https://docs.spring.io/spring-cloud-gateway/docs/current/reference/html/)
 
 Gateway是在Spring生态系统之上构建的API网关服务，基于Spring 5，Spring Boot 2 和 Project Reactor 等技术。Gateway旨在提供一种简单而有效的方式来对API进行路由，以及提供一些强大的过滤器功能，例如：熔断、限流、重试等
 
@@ -1813,3 +1814,288 @@ spring:
           predicates:
             - Path=/payment/lb/** # 断言，路径相匹配的进行路由
 ```
+
+## Predicate
+Spring Cloud Gateway 将路由匹配作为 Spring WebFlux HandlerMapping 基础架构的一部分。
+Spring Cloud Gateway 包括许多内置的 Route Predicate 工厂。所有这些 Predicate 都与 HTTP 请求的不同属性匹配。多个 Route Predicate 工厂可以结合
+Spring Cloud Gateway 创建 Route 对象时，使用 RoutePredicateFactory 创建 Predicate 对象，Predicate 对象可以赋值给 Route。Spring Cloud Gateway 包含许多内置的 Route Predicate Factories。
+所有这些谓词都匹配 HTTP 请求的不同属性。多种谓词工厂可以组合，并通过逻辑 and。
+
+* 基于时间的断言
+    ``` yml
+    spring:
+        cloud:
+            gateway:
+            routes:
+            - id: after_route
+                uri: https://example.org
+                predicates:
+                - After=2017-01-20T17:42:47.789-07:00[America/Denver]
+    ```
+    同样的还有
+    ```
+    - Before=2017-01-20T17:42:47.789-07:00[America/Denver]
+    - Between=2017-01-20T17:42:47.789-07:00[America/Denver], 2017-01-21T17:42:47.789-07:00[America/Denver]
+    ```
+
+* 基于缓存的断言
+    Cookie Route Predicate 需要两个参数，一个是 Cookie name， 一个是正则表达式
+    路由规则会通过获取对应的 Cookie name 值和正则表达式去匹配，如果匹配上就会执行路由，如果没有匹配上则不执行
+    ``` yml
+    spring:
+        cloud:
+            gateway:
+            routes:
+            - id: cookie_route
+                uri: https://example.org
+                predicates:
+                - Cookie=chocolate, ch.p
+    ```
+
+* 基于请求头的断言
+
+    ``` yml
+    spring:
+        cloud:
+            gateway:
+            routes:
+            - id: header_route
+                uri: https://example.org
+                predicates:
+                - Header=X-Request-Id, \d+ # 请求头含有X-Request-Id请求头，并且值是整数
+    ```
+
+
+## Filter
+路由过滤器可用于修改进入的 HTTP 请求和返回的 HTTP 响应，路由过滤器只能指定路由进行使用。
+Spring Cloud Gateway 内置了多种路由过滤器，他们都由 GatewayFilter 的工厂类来产生
+
+* 自定义Filter
+    ``` java
+    @Slf4j
+    @Component
+    public class MyFilter implements GlobalFilter, Ordered {
+        @Override
+        public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+            log.info("自定义过滤器");
+            String token = exchange.getRequest().getQueryParams().getFirst("token");
+            if (token == null) {
+                log.info("没有权限");
+                exchange.getResponse().setStatusCode(HttpStatus.NOT_ACCEPTABLE);
+                return exchange.getResponse().setComplete();
+            }
+            return chain.filter(exchange);
+        }
+
+        @Override
+        public int getOrder() {
+            return 0;
+        }
+    }
+    ```
+> 其余更详细的过滤规则可以查看官网或 API 文档
+
+
+# Config
+
+[Spring Cloud Config](https://docs.spring.io/spring-cloud-config/docs/current/reference/html/)
+
+微服务意味着要将单体应用中的业务拆分成一个个子服务，每个服务的粒度相对较小，因此系统中会出现大量的服务。由于每个服务都需要必要的配置信息才能运行，所以一套集中式的、动态的配置管理设施是必不可少的。
+
+Spring Cloud Config 为微服务架构中的微服务提供集中化的外部配置支持，配置服务器为==各个不同微服务应用==的所有环境提供了一个==中心化的外部配置==
+
+Spring Cloud Config 分为服务端和客户端两部分。服务端也称为==分布式配置中心==，它是一个独立的微服务应用，用来连接配置服务器并为客户端提供获取配置信息，加密/解密信息等访问接口。
+
+客户端则是通过指定的配置中心来管理应用资源，以及与业务相关的配置内容，并在启动的时候从配置中心获取和加载配置信息，配置服务器默认采用 git 来存储配置信息，这样就有助于对环境配置进行版本管理，并且可以通过 git 客户端工具来方便的管理和访问配置内容。
+
+## 特点
+1. 集中化管理配置文件
+2. 不同环境不同配置，动态化的配置更新，分环境部署，比如 dev/prod/beta/release
+3. 运行期间动态调整配置，不再需要在每个服务部署的机器上编写配置文件，服务会向配置中心统一拉取配置自己的信息
+4. 当配置发生变动时，服务不需要重启即可感知到配置的变化并应用到新的配置
+5. 将配置信息以 REST 接口的形式暴露
+
+## 配置中心搭建
+1. 在Github上新建一个Repository
+2. 获取新建的git地址
+3. 在本地硬盘目录上新建git仓库并clone
+4. 新建配置中心模块
+5. POM
+    ``` xml
+    <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-config-server</artifactId>
+    </dependency>
+    ```
+6. YML
+    ``` yml
+    server:
+        port: 3344
+
+    spring:
+        application:
+            name: cloud-config-center # 注册进eureka服务器的服务名
+    cloud:
+        config:
+        server:
+        git:
+            uri: https://github.com/qiancijun/SprintCloudConfig.git # git仓库
+            search-paths:
+            - SprintCloudConfig # 搜索目录
+            username: 769303522@qq.com
+            password: 20010206qianci
+        label: master # 读取分支
+
+    eureka:
+        client:
+            service-url:
+            defaultZone: http://eureka7001.com:7001/eureka
+    ```
+    如果使用SSH连接，需要配置密钥
+
+通过`http://localhost:3344/master/config-dev.vml`访问配置文件
+
+* 配置文件命名格式
+    ```
+    /{application}/{profile}[/{label}]
+    /{application}-{profile}.yml
+    /{label}/{application}-{profile}.yml
+    /{application}-{profile}.properties
+    /{label}/{application}-{profile}.properties
+    ```
+
+## 客户端
+
+1. POM
+    ``` xml
+     <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-starter-config</artifactId>
+    </dependency>
+    ```
+2. bootstrap.yml
+    application.yml 是用户级的资源配置项，bootstrap.yml 是系统级的，优先级更高
+    Spring Cloud会创建一个 Bootstrap Context，作为 Spring 应用的 Application Context 的父上下文。初始化的时候，Bootstrap Context 负责从外部源加载配置属性并解析配置。这两个上下文共享一个从外部获取的 Environment
+    Bootstrap 属性有高优先级，默认情况下，它们不会被本地配置覆盖。Bootstrap Context 和 Application Context 有者不同的约定，所以新增了一个 bootstrap.yml 文件，保证 Bootstrap Context 和Application Context 配置的分离
+    ``` yml
+    server:
+        port: 3355
+
+    spring:
+        application:
+            name: config-client
+    cloud:
+        config:
+            label: master # 分支名称
+            name: config # 配置文件名称
+            profile: dev # 读取后缀名称
+            uri: http://localhost:3344 # 配置中心地址
+
+    eureka:
+        client:
+            service-url:
+                defaultZone: http://eureka7001.com:7001/eureka
+    ```
+
+3. 业务类
+    ``` java
+    @RestController
+    public class ConfigClientController {
+        @Value("${config.info}")
+        private String info;
+
+        @GetMapping("/configInfo")
+        public String getConfigInfo() {
+            return info;
+        }
+    }
+    ```
+
+在Github上修改完配置文件，配置中心可以立马获取新的配置，但是客户端必须重启微服务才能获取，这是不现实的
+
+## 动态刷新
+避免每次更新配置都要重启客户端微服务
+
+1. POM文件引入`actuator`监控模块
+2. 修改YML，暴露监控端口
+    ``` yml
+    management:
+        endpoints:
+            web:
+                exposure:
+                    include: "*"
+    ```
+3. 在业务类上新增`@RefreshScope`
+
+到这一步，客户端还是不会动态刷新。需要发送POST请求刷新客户端
+`curl -X POST "http://localhost:3355/actuator/refresh"`
+
+
+# Bus
+使用消息总线 Bus 可以实现分布式自动刷新配置功能
+
+Bus 支持两种消息代理：RabbitMQ 和 Kafka
+
+Spring Cloud Bus 是用来将分布式系统的节点与轻量级消息系统链接起来的框架，它整合了 Java 的事件处理机制和消息中间件的功能
+![](SpringCloud\消息总线Bus.png)
+
+Spring Cloud Bus 能管理和传播分布式系统的消息，就像一个分布式执行器，可用于广播状态更改、事件推送等，也可以当作微服务间的通信通道
+
+* 总线:
+    在微服务架构的系统中，通常会使用轻量级的消息代理来构建一个共用的消息主题，并让系统中所有微服务实例都连接上来，由于该主题中产生的消息会被所有实例监听和消费，所以称它为消息总线。在总线上的各个实例，都可以方便的广播一些需要让其他连接在该主题上的实例都知道的消息。
+
+* 基本原理：
+    ConfigClient 实例都监听 MQ 中同一个 Topic（默认是 Spring Cloud Bus）。当一个服务刷新数据的时候，它会把这个信息放入到 topic 中，这样其他监听同一个 topic 的服务就能得到通知，然后去更新自身的配置
+
+由于 RabbitMQ 需要 Erlang 环境的支持，这里不做演示
+![](SpringCloud\消息总线2.png)
+
+Kafka使用Scala实现，被用作LinkedIn的活动流和运营数据处理的管道，现在也被诸多互联网企业广泛地用作为数据流管道和消息系统
+![](SpringCloud\kafka.png)
+Kafka是基于消息发布/订阅模式实现的消息系统，其主要设计目标如下：
+1. 消息持久化：以时间复杂度为O(1)的方式提供消息持久化能力，即使对TB级以上数据也能保证常数时间复杂度的访问性能。
+2. 高吞吐：在廉价的商用机器上也能支持单机每秒100K条以上的吞吐量
+3. 分布式：支持消息分区以及分布式消费，并保证分区内的消息顺序
+4. 跨平台：支持不同技术平台的客户端（如：Java、PHP、Python等）
+5. 实时性：支持实时数据处理和离线数据处理
+6. 伸缩性：支持水平扩展
+
+Kafka中涉及的一些基本概念：
+1. Broker：Kafka集群包含一个或多个服务器，这些服务器被称为Broker。
+2. opic：逻辑上同Rabbit的Queue队列相似，每条发布到Kafka集群的消息都必须有一个Topic。（物理上不同Topic的消息分开存储，逻辑上一个Topic的消息虽然保存于一个或多个Broker上，但用户只需指定消息的Topic即可生产或消费数据而不必关心数据存于何处）
+3. Partition：Partition是物理概念上的分区，为了提供系统吞吐率，在物理上每个Topic会分成一个或多个Partition，每个Partition对应一个文件夹（存储对应分区的消息内容和索引文件）。
+4. Producer：消息生产者，负责生产消息并发送到Kafka Broker。
+5. Consumer：消息消费者，向Kafka Broker读取消息并处理的客户端。
+6. Consumer Group：每个Consumer属于一个特定的组（可为每个Consumer指定属于一个组，若不指定则属于默认组），组可以用来实现一条消息被组内多个成员消费等功能。
+
+* client 和 Server 端添加
+    ``` xml
+    <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-starter-bus-kafka</artifactId>
+    </dependency>
+    ```
+* kafka 需要 Zookeeper 的支持，先启动 Zookeeper
+* 再启动 kafka，需要指定配置文件
+
+在 Config Server 配置中心端添加
+``` yml
+management:
+  endpoints: # 暴露Bus刷新配置的端点
+    web:
+      exposure:
+        include: "bus-refresh"
+```
+
+发送 POST 请求来刷新所有的配置
+```
+curl -X POST http://localhost:配置中心端口号/actuator/bus-refresh
+```
+
+指定具体某一个实例生效而不是全部
+```
+http://localhost:配置中心端口号/actuator/bus-refresh/{destination}
+```
+
+# Stream
+屏蔽底层消息中间件的差异，降低切换成本，统一消息的编程模型

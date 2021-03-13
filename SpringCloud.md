@@ -2053,6 +2053,7 @@ Spring Cloud Bus 能管理和传播分布式系统的消息，就像一个分布
 Kafka使用Scala实现，被用作LinkedIn的活动流和运营数据处理的管道，现在也被诸多互联网企业广泛地用作为数据流管道和消息系统
 ![](SpringCloud\kafka.png)
 Kafka是基于消息发布/订阅模式实现的消息系统，其主要设计目标如下：
+
 1. 消息持久化：以时间复杂度为O(1)的方式提供消息持久化能力，即使对TB级以上数据也能保证常数时间复杂度的访问性能。
 2. 高吞吐：在廉价的商用机器上也能支持单机每秒100K条以上的吞吐量
 3. 分布式：支持消息分区以及分布式消费，并保证分区内的消息顺序
@@ -2098,4 +2099,149 @@ http://localhost:配置中心端口号/actuator/bus-refresh/{destination}
 ```
 
 # Stream
-屏蔽底层消息中间件的差异，降低切换成本，统一消息的编程模型
+[Spring Cloud Stream](https://docs.spring.io/spring-cloud-stream/docs/3.1.1/reference/html/)
+屏蔽底层消息中间件的差异，降低切换成本，统一消息的编程模型。
+
+Spring Cloud Stream 是一个构建消息驱动微服务的框架
+应用程序通过 inputs 或者 outputs 来与 Spring Cloud Stream 中 binder 对象交互。通过配置来绑定，而 Spring Cloud Stream 的 binder 对象负责与消息中间件交互。所以，我们只需要搞清楚如何与 Spring Cloud Stream 交互就可以方便使用消息驱动的方式。
+通过使用 Spring Integration 来连接消息代理中间件以实现消息事件驱动。Spring Cloud Stream 为一些供应商的消息中间件产品提供了个性化的自动化配置，引用了发布-订阅、消费组、分区的三个核心概念
+
+中间件的差异性导致了实际项目开发造成的一定困扰，如果用了两个消息队列的其中一种，后面的业务需求，想使用另外一种消息队列进行迁移，这时候无疑就是一个灾难，一大堆东西需要重新推倒重做，因为它跟我们的系统耦合了，这时候 Spring Cloud Stream 给我们提供了一种解耦合的方式。
+
+在没有绑定器的概念的情况下，SpringBoot 应用要直接与消息中间件进行信息交互的时候，由于各消息中间件构建的初衷不同，它们的实现细节上会有较大的差异性，通过定义绑定器作为中间层，完美的实现了==应用程序与消息中间件细节之间的隔离==。通过向应用程序暴露统一的 Channel 通道，使得应用程序不需要再考虑各种不同的消息中间件实现。
+
+## API与常用注解
+
+|组成|说明|
+|:-:|:-:|
+|Middleware|中间件，目前只支持 RabbitMq 和 Kafka|
+|Binder|Binder 是应用与消息中间件之间的封装，目前实行了 Kafka 和 RabbitMQ 的 Binder，通过 Binder 可以很方便的连接中间件，可以动态的改变消息类型（对应 Kafka）的topic，RabbitMQ 的 exchange），这些都可以通过配置文件实现|
+|@Input|注解标识输入通道，通过该输入通道接收到的消息进入应用程序|
+|@Output|注解标注输出通道，发布的消息将通过该通道离开应用程序|
+|StreamListener|监听队列，用于消费者的队列的消息接收|
+|@EnableBinding|指信道 channel 和 exchange 绑定在一起|
+
+## 消息驱动-生产者
+
+* POM
+    ``` xml
+    <dependency>
+        <groupId>org.springframework.cloud</groupId>
+        <artifactId>spring-cloud-stream-binder-kafka</artifactId>
+    </dependency>
+    ```
+    
+* YML
+    ``` yml
+    server:
+        port: 8801
+
+    spring:
+        application:
+            name: cloud-stream-provider
+    cloud:
+        stream:
+            bindings:
+                my_channel_input:
+                    destination: study
+                my_channel_output:
+                    destination: study
+            default-binder: kafka
+    kafka:
+        bootstrap-servers: localhost:9092
+        producer:
+            key-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+            value-serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+
+    eureka:
+        client:
+            register-with-eureka: true # 是否将自己注册进 EurekaServer 默认为 true
+            fetch-registry: true # 是否从 EurekaServer 抓取已有的信息，默认为 true 。集群必须设置为true才能配合ribbon使用负载均衡
+            service-url:
+                defaultZone: http://eureka7001.com:7001/eureka
+    ```
+
+* 创建 Sink 接口
+    ``` java
+    public interface Sink {
+        String INPUT = "input";
+        @Input("input")
+        SubscribableChannel input();
+    }
+    ```
+
+* 创建 Source 接口
+    ``` java
+    public interface Source {
+        String OUTPUT = "output";
+        @Output
+        MessageChannel output();
+    }
+    ```
+
+* 创建通道
+    ``` java
+    public interface MyChannel {
+        String MY_CHANNEL_INPUT = "my_channel_input"; // 订阅通道的名称
+        String MY_CHANNEL_OUTPUT = "my_channel_output"; // 发消息通道的名称
+        @Output(MY_CHANNEL_OUTPUT)
+        MessageChannel sendMessage();
+
+        @Input(MY_CHANNEL_INPUT)
+        SubscribableChannel receiveMessage();
+
+    }
+    ```
+
+* 发布广播
+    ``` java
+    @EnableBinding(MyChannel.class)
+    public class ProviderServiceImpl implements IProviderService {
+
+        @Resource(name = MyChannel.MY_CHANNEL_OUTPUT)
+        private MessageChannel messageChannel;
+
+        @Override
+        public String send() {
+            String uuid = UUID.randomUUID().toString();
+            messageChannel.send(MessageBuilder.withPayload(uuid).build());
+            System.out.println(uuid);
+            return null;
+        }
+    }
+    ```
+
+## 消息驱动-消费者
+``` java
+@StreamListener(MyChannel.MY_CHANNEL_INPUT)
+public void receive(Message<String> message) {
+    System.out.println("订阅者：" + message.getPayload());
+}
+```
+
+## 重复消费
+比如在如下场景中，订单系统做集群部署，都会从 RabbitMQ 中获取订单信息，如果一个订单同时被两个服务获取到，那么就会造成数据错误，一定要避免这个情况。可以使用 Stream 中的消息分组来解决。
+在 Stream 中处于同一个 group 中的多个消费者是竞争关系，就能够保证消息只会被其中一个应用消费一次。不同组是可以全面消费的，同一组内会发生竞争关系，只有其中一个可以消费
+
+## 分组配置
+默认分组 group 是不同的，组流水号不一样，被认为不同组，会导致重复消费
+
+为消费者设置分组
+``` yml
+spring:
+  application:
+    name: cloud-stream-consumer
+  cloud:
+    stream:
+      bindings:
+        my_channel_input:
+          destination: study
+          group: groupA
+      default-binder: kafka
+```
+
+# Sleuth
+[Spring Cloud Sleuth](https://docs.spring.io/spring-cloud-sleuth/docs/current/reference/html/)
+在微服务框架中，一个由客户端发起的请求在后端系统中会经过多个不同的服务节点调用来协同产生最后的请求结果，每一个前端请求都会形成一条复杂的分布式服务调用链路，链路中的任何一环出现高延时或错误都会引起整个请求最后的失败。
+
+
